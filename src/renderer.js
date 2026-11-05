@@ -188,10 +188,16 @@ function renderMetrics() {
   text('career-region', 'Region: ' + current.settings.region.toUpperCase() + ' · Local imported history only');
   text('data-status', m.played ? 'LOCAL DATA READY' : 'LOCAL MODE');
   text('key-status', current.apiConfigured ? 'Official Riot API key detected in environment' : 'No approved Riot API key configured');
-  text('riot-connect-title', current.rsoConfigured ? 'Riot OAuth portal configured' : 'Riot Sign On • approval required');
-  text('riot-connect-description', current.rsoConfigured ?
-    'Use the external approved portal to authenticate. Personal live sync still requires backend integration.' :
-    'The app needs an approved Riot RSO client and secure backend. No login credentials are bundled.');
+  text('riot-connect-title', current.linkedAccount ?
+    'Connected: ' + (current.linkedAccount.gameName || 'Riot player') + '#' + (current.linkedAccount.tagLine || '') :
+    (current.rsoConfigured ? 'Riot OAuth available' : 'Riot Sign On • approval required'));
+  text('riot-connect-description', current.linkedAccount ?
+    'Your account has explicitly opted in. Use Sync Riot to import your own completed matches.' :
+    (current.rsoConfigured ? 'Secure browser-based linking is available through the configured Riot-approved service.' :
+    'The app needs an approved Riot RSO client and secure backend. No login credentials are bundled.'));
+  $('riot-connect').classList.toggle('hidden', !!current.linkedAccount);
+  $('riot-disconnect').classList.toggle('hidden', !current.linkedAccount);
+  text('matches-riot-sync', current.linkedAccount ? 'Sync Riot matches' : 'Sync Riot (sign in)');
   text('version-text', 'VTS ' + (current.version || 'developer preview'));
   text('folder-path', current.settings.syncFolder || 'No folder selected');
   $('key-status').classList.toggle('ok', current.apiConfigured);
@@ -376,10 +382,40 @@ function bind() {
     } catch(error) {showToast(error.message,true);}
   });
   $('riot-connect').addEventListener('click', async () => {
+    const button = $('riot-connect');
+    button.disabled = true;
+    button.textContent = 'Waiting for Riot authorization…';
+    showToast('A browser window will open for Riot authorization, if configured.');
     try {
       const result = await window.vts.riotLogin();
-      showToast(result.note || result.error, !result.ok);
+      if (result.ok) {
+        current = await window.vts.getState();
+        fillSettings();renderAll();
+        showToast('Riot account connected. You can now sync your completed matches.');
+      } else showToast(result.error || 'Account linking failed.', true);
     } catch(error) {showToast(error.message,true);}
+    finally {button.disabled=false;button.textContent='Connect Riot account ↗';}
+  });
+  $('riot-disconnect').addEventListener('click', async () => {
+    if (!confirm('Disconnect your Riot account? Your local match history will remain.')) return;
+    try {
+      await window.vts.riotDisconnect();
+      current = await window.vts.getState();renderAll();
+      showToast('Riot account disconnected.');
+    } catch(error) {showToast(error.message,true);}
+  });
+  $('matches-riot-sync').addEventListener('click', async () => {
+    if (!current.linkedAccount) {
+      showPage('settings');showToast('Connect a Riot account first.',true);return;
+    }
+    const button = $('matches-riot-sync');
+    button.disabled=true;button.textContent='Syncing matches…';
+    try {
+      const result=await window.vts.riotSync();
+      if (result.ok) showToast('Synced ' + result.examined + ' completed matches (' + result.count + ' new).');
+      else showToast(result.error,true);
+    } catch(error) {showToast(error.message,true);}
+    finally {button.disabled=false;button.textContent='Sync Riot matches';}
   });
   $('library-filter').addEventListener('input', renderLibrary);
   $('library-refresh').addEventListener('click', () => {weaponCatalog=[];loadCatalog(true);});
