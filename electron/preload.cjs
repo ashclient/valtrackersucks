@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('vts', Object.freeze({
   exportCsv: () => ipcRenderer.invoke('app:export-csv'),
   catalog: (kind) => ipcRenderer.invoke('app:catalog', kind),
   riotLogin: () => ipcRenderer.invoke('app:rso'),
+  riotSync: () => ipcRenderer.invoke('app:rso-sync'),
+  riotDisconnect: () => ipcRenderer.invoke('app:rso-disconnect'),
   leaderboard: () => ipcRenderer.invoke('app:leaderboard'),
   overlay: (action) => ipcRenderer.invoke('overlay:action', action),
   windowAction: (action) => ipcRenderer.invoke('window:action', action),
