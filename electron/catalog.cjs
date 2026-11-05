@@ -52,7 +52,12 @@ function sanitizeWeapon(entry) {
     name: clean(entry.displayName, 50),
     category: clean((entry.shopData && entry.shopData.categoryText) || entry.category, 55),
     cost: Math.max(0, Number(entry.shopData && entry.shopData.cost) || 0),
-    image: validImage(entry.displayIcon)
+    image: validImage(entry.displayIcon),
+    skins: Array.isArray(entry.skins) ? entry.skins.slice(0, 32)
+      .filter(s => s && s.uuid && s.displayName && !String(s.displayName).includes('Standard'))
+      .map(s => ({id:clean(s.uuid, 80), name:clean(s.displayName, 90),
+        image:validImage(s.displayIcon || s.chromas && s.chromas[0] && s.chromas[0].fullRender) }))
+      .filter(s => s.image) : []
   };
 }
 async function getCatalog(kind, opts) {
