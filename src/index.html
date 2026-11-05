@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://media.valorant-api.com; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
   <meta name="color-scheme" content="dark">
   <title>VTS — VALORANT companion</title>
   <link rel="stylesheet" href="./style.css">
@@ -22,6 +22,7 @@
         <button class="nav-btn" data-view-target="matches"><span class="nav-symbol">≡</span> Match history</button>
         <button class="nav-btn" data-view-target="agents"><span class="nav-symbol">◇</span> Agent presets</button>
         <button class="nav-btn" data-view-target="leaderboard"><span class="nav-symbol">▤</span> Leaderboard</button>
+        <button class="nav-btn" data-view-target="library"><span class="nav-symbol">⌘</span> Collection library</button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="side-bottom">
@@ -107,7 +108,7 @@
             <p>Import official match JSON and keep up to 500 summaries stored on this device.</p>
           </div>
           <div class="panel">
-            <div class="panel-head"><div><h3>Match log</h3><small id="match-counter">0 imported matches</small></div><div class="inline-buttons"><button class="btn btn-secondary btn-small" id="clear-matches">Clear history</button><button class="btn btn-primary btn-small" id="matches-import">＋ Import JSON</button></div></div>
+            <div class="panel-head"><div><h3>Match log</h3><small id="match-counter">0 imported matches</small></div><div class="inline-buttons"><button class="btn btn-secondary btn-small" id="matches-export">Export CSV</button><button class="btn btn-secondary btn-small" id="clear-matches">Clear history</button><button class="btn btn-primary btn-small" id="matches-import">＋ Import JSON</button></div></div>
             <div id="all-matches" class="match-list full"></div>
           </div>
         </section>
@@ -120,7 +121,7 @@
           </div>
           <div class="section-title-line compact"><div><h2>Available agents</h2><p>Click a name to add or remove it from your three priorities.</p></div></div>
           <div id="agent-grid" class="agent-grid"></div>
-          <div class="policy-line">Agent presets never interact with the VALORANT client or automatically lock selections.</div>
+          <div class="policy-line" id="agent-catalog-status">Loading current playable agents…</div><div class="policy-line">Agent presets never interact with the VALORANT client or automatically lock selections.</div>
         </section>
 
         <section class="view" data-view="leaderboard">
@@ -132,7 +133,22 @@
           </div>
         </section>
 
-        <section class="view" data-view="settings">
+        <section class="view" data-view="library">
+  <div class="page-heading"><div class="eyebrow">PUBLIC VALORANT CONTENT</div><h1>Collection <span>library.</span></h1>
+    <p>Explore the game's public weapon and cosmetic catalog. This does not show your rotating shop or change your inventory.</p></div>
+  <div class="panel">
+    <div class="panel-head"><div><h3>Skin browser</h3><small>Officially unaffiliated community game assets · no account access</small></div>
+      <button class="btn btn-secondary btn-small" id="library-refresh">Reload assets</button>
+    </div>
+    <div class="library-controls">
+      <label class="library-search-label">Filter weapon or skin <input id="library-filter" type="search" placeholder="Search Vandal, Ghost, Phantom..." spellcheck="false"></label>
+      <div id="library-status" class="library-caption">Loading public game content…</div>
+    </div>
+    <div id="library-grid" class="library-grid"></div>
+  </div>
+  <div class="policy-line">Your personal rotating store and inventory are not exposed in Riot's documented public API. This library is for browsing only.</div>
+</section>
+<section class="view" data-view="settings">
           <div class="page-heading"><div class="eyebrow">PREFERENCES</div><h1>Make it <span>yours.</span></h1><p>Your settings and imported match summaries stay on this computer.</p></div>
           <div class="settings-grid">
             <article class="panel"><div class="panel-head"><div><h3>Player profile</h3><small>Used only to match your imported games to you</small></div></div>
@@ -144,10 +160,31 @@
                 <div class="input-hint">Required for importing official match JSON. Never enter your password or access token here.</div>
                 <label for="setting-region">Region</label>
                 <select id="setting-region"><option value="na">North America</option><option value="eu">Europe</option><option value="ap">Asia Pacific</option><option value="kr">Korea</option><option value="br">Brazil</option><option value="latam">Latin America</option></select>
+                <div class="settings-options">
+                  <label class="toggle-row" for="setting-startup"><span><strong>Launch with Windows</strong><small>Start VTS when you sign in to Windows</small></span><input id="setting-startup" type="checkbox"></label>
+                  <label class="toggle-row" for="setting-tray"><span><strong>Minimize to system tray</strong><small>Keep shortcuts and overlay available when closing the window</small></span><input id="setting-tray" type="checkbox"></label>
+                  <label class="toggle-row overlay-opacity" for="setting-opacity"><span><strong>Overlay opacity</strong><small id="opacity-label">98%</small></span><input id="setting-opacity" type="range" min="65" max="100" step="1" value="98"></label>
+                </div>
                 <button type="submit" class="btn btn-primary save-button">Save preferences</button>
               </form>
             </article>
             <div class="settings-stack">
+              <article class="panel">
+                <div class="panel-head"><div><h3>Riot account</h3><small>Optional opt-in connection</small></div></div>
+                <div class="account-connect">
+                  <div class="account-icon">R</div>
+                  <div><strong id="riot-connect-title">Riot Sign On</strong>
+                  <p id="riot-connect-description">An approved Riot production app and secure authentication service are required. Signing in does not authorize client gameplay controls.</p></div>
+                </div>
+                <button class="btn btn-primary" id="riot-connect">Connect Riot account ↗</button>
+                <p class="panel-note">No Riot password is entered into VTS. Account statistics and match sync can only be enabled after approved integration is configured.</p>
+              </article>
+              <article class="panel">
+                <div class="panel-head"><div><h3>Local match sync</h3><small>Optional automatic folder import every 60 seconds</small></div></div>
+                <p id="folder-path" class="folder-path">No folder selected</p>
+                <div class="inline-buttons"><button class="btn btn-secondary btn-small" id="choose-folder">Choose folder</button><button class="btn btn-secondary btn-small" id="sync-now">Sync now</button></div>
+                <p class="panel-note">Choose a folder of your own legally obtained official match JSON exports. VTS does not read the live Riot client or its credentials.</p>
+              </article>
               <article class="panel"><div class="panel-head"><div><h3>Overlay shortcuts</h3><small>Available while VTS is running</small></div></div>
                 <div class="shortcut-row"><span>Show / hide overlay</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>V</kbd></div>
                 <div class="shortcut-row"><span>Interact / click-through</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>I</kbd></div>
@@ -161,7 +198,7 @@
             </div>
           </div>
         </section>
-        <footer class="footer">VTS is independent and not endorsed by Riot Games. &nbsp;·&nbsp; Data is for post-match reflection, not live opponent scouting.</footer>
+        <footer class="footer"><span id="version-text">VTS</span> &nbsp;·&nbsp; VTS is independent and not endorsed by Riot Games. &nbsp;·&nbsp; Data is for post-match reflection, not live opponent scouting.</footer>
       </div>
     </div>
   </div>
