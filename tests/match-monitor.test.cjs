@@ -21,3 +21,8 @@ test('phase changes discard old snapshots and never exceed the worker limit',asy
 test('stopping clears the snapshot and suppresses late network results',async()=>{
  const f=fixture();f.monitor.start();await flush();const count=f.events.length;f.monitor.stop();f.pending.get('player-0')(f.stats);await flush();assert.equal(f.events.length,count);assert.equal(f.monitor.snapshot,null);
 });
+test('changing modes clears prior stats and ignores in-flight results from the old mode',async t=>{
+ const f=fixture();t.after(()=>f.monitor.stop());f.monitor.start();await flush();f.monitor.setModes(['swiftplay']);await flush();
+ assert.deepEqual(f.monitor.modes,['swiftplay']);assert.equal(f.monitor.snapshot.players[0].stats,null);
+ f.pending.get('player-0')(f.stats);await flush();assert.equal(f.monitor.snapshot.players[0].stats,null);assert.equal(f.monitor.activeLoads,2);
+});

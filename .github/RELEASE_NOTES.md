@@ -1,26 +1,14 @@
-## VTS v0.5.0
+## VTS v0.6.0
 
-### Automatic match stats
+- Redesigned the entire desktop menu and shared store/locker/settings surfaces with grouped navigation, readable statuses, consistent controls and keyboard focus. UI UX Pro Max is installed in the repository; VTS design decisions are recorded separately.
+- All modes are included in stats by default. Pick one queue from Live match, or any subset in Settings. Choices persist and apply to the live table, overlay, reports and saved-history views. Switching filters discards old samples and uses separate caches.
+- Own automatic stats also populate saved history for an empty or matching profile. Existing history for another profile is preserved until an explicit switch.
+- Masked names no longer block stat requests. Players in the current roster can show permitted history without their names being revealed. A 403 or withheld identity is respected; unknown enemies cannot be displayed before Riot supplies them.
+- Locker loads on entry. Supports canonical/legacy entitlement routes, category-scoped responses and optional read-field omissions; preserves equipped items and shows warnings/retry when ownership or artwork is unavailable. Equip still requires ownership and complete privacy settings.
+- One global shortcut, **Ctrl + Shift + V**, opens/closes an immediately clickable overlay. **Escape** closes it. The second interaction keybind is removed.
+- A separate always-clickable agent picker appears at the bottom right during pregame/loading, offers the full catalog with inline lock confirmation, and hides when the core match starts, the queue is cancelled or the account disconnects.
+- Diagnostics preserve history, loadout, ownership and name-service HTTP statuses plus response counts/shape information without credentials, player IDs or names.
 
-- Fixed Riot Client match parsing: internal responses use `subject` and `queueID`, unlike the official API. The previous parser discarded valid games.
-- Sync Riot matches now uses your connected local client without asking for optional RSO sign-in.
-- VTS automatically connects to the signed-in Windows Riot Client and updates the roster every five seconds. This is configurable in Settings; Disconnect disables reconnection.
-- Party stats load in the lobby, allies during agent select, and enemies as soon as Riot publishes the loading/match roster. No player click is needed.
-- Both windows show recent competitive K/D, win rate, ACS, headshots, ADR, sample size, rank and reported peak. The desktop also shows the selected agent's recent sample.
-- Confirmed current parties share P# badges; hover to see who is grouped. Past-party evidence is labeled separately and does not assert current membership.
-- Displays Riot IDs returned by your session's name service, including masked handles if returned. Withheld names and rejected histories remain unavailable.
-- Background loading is bounded and cached; stale results are discarded on phase/account changes. Endpoint diagnostics copy HTTP statuses without credentials or player IDs.
+**Downloads:** `VTS.Setup.0.6.0.exe` (installer) and `VTS.0.6.0.exe` (portable), Windows x64.
 
-### Desktop and overlay
-
-- Rebuilt the default Live match screen around the published Tracker profile-and-table composition, with original VTS code and branding.
-- Dense ally/enemy rows, grouped stat columns, rank badges, agent art, own-player highlighting and team averages replace click-to-load reports.
-- Wider separate overlay opens directly to the match table; tray and configurable global shortcuts remain available.
-- Shop, accessories, bundles, Night Market and owned-item locker remain available.
-
-### Downloads and validation
-
-- **VTS.Setup.0.5.0.exe** — Windows x64 installer.
-- **VTS.0.5.0.exe** — Windows x64 portable.
-
-57 tests cover parsing, phase changes, background loading, parties and existing store/locker behavior. The parser includes an anonymized published response fixture. Electron layout and hotkeys were checked on Linux. Live authenticated Riot requests and display over VALORANT still require Windows account validation. Future opponents cannot be shown before Riot assigns and supplies their roster. These are recent Riot Client samples, not lifetime Tracker scores or a Tracker.gg API integration. Builds are unsigned; Borderless Windowed is the overlay target.
+69 automated tests and real Electron/X11 checks cover modes, stale requests, masked-player stats, locker fallbacks, one-key clickable overlay, tray operation and automatic agent-panel placement/dismissal. Public artwork and clearly labeled synthetic account data are used for visual QA. Live authenticated Riot requests and overlay compatibility over VALORANT still need Windows validation. Builds are unsigned; Borderless Windowed remains the overlay target. Recent Riot Client samples are not lifetime Tracker.gg scores.

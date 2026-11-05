@@ -1,0 +1,1 @@
+Installed with `npx ui-ux-pro-max-cli init --ai codex` from https://github.com/nextlevelbuilder/ui-ux-pro-max-skill on 2026-11-05. Python scripts run locally with the standard library. Only ui-ux-pro-max is retained. Its MIT license is included.

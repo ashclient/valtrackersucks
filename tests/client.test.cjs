@@ -61,7 +61,7 @@ test('disconnect during connection prevents late response from restoring session
   release({subject:own,accessToken:'private',token:'private'});
   await assert.rejects(pending,/canceled/);assert.equal(client.session,null);
 });
-test('withheld Riot IDs have no exposed ID or history query',async()=>{
+test('masked names do not prevent permitted rank and history requests',async()=>{
   const hidden='44444444-4444-4444-4444-444444444444';
   const {client,calls}=fixture({
     ['/core-game/v1/players/'+own]:{MatchID:party},
@@ -71,8 +71,11 @@ test('withheld Riot IDs have no exposed ID or history query',async()=>{
   });
   await client.connect('na');const players=await client.players();
   assert.equal(players[0].name,'Myself#NA1');assert.equal(players[0].rank.tier,18);
-  assert.equal(players[1].name,'Hidden player');assert.equal(players[1].puuid,undefined);assert.equal(players[1].rank,null);
-  assert.ok(!calls.some(x=>x.url.includes('/mmr/v1/players/'+hidden)||x.url.includes('/match-history/v1/history/'+hidden)));
+  assert.equal(players[1].name,'Hidden player');assert.equal(players[1].puuid,hidden);assert.equal(players[1].rank,null);
+  assert.ok(calls.some(x=>x.url.includes('/mmr/v1/players/'+hidden)));
+  await assert.rejects(client.playerStats(hidden),/history unavailable/);
+  assert.ok(calls.some(x=>x.url.includes('/match-history/v1/history/'+hidden)));
+  assert.ok(client.session);
   const nameRequest=calls.find(x=>x.url.includes('/name-service/'));
   assert.deepEqual(JSON.parse(nameRequest.opts.body),[own,hidden]);
 });
@@ -158,4 +161,34 @@ test('concurrent player reports coalesce shared match-detail requests',async()=>
  const detail=require('./fixtures/client-match-detail.json'),id=detail.matchInfo.matchId;
  const {client,calls}=fixture({['/match-history/v1/history/'+own]:{History:[{MatchID:id}]},['/match-history/v1/history/'+party]:{History:[{MatchID:id}]},['/match-details/v1/matches/'+id]:detail});
  await client.connect('na');client.visiblePlayers.add(party);await Promise.all([client.playerStats(own),client.playerStats(party)]);assert.equal(calls.filter(c=>c.url.includes('/match-details/')).length,1);
+});
+
+test('default history requests include every queue and keep diagnostics after roster polling',async()=>{
+ const detail=structuredClone(require('./fixtures/client-match-detail.json'));detail.matchInfo.queueID='swiftplay';
+ const id=detail.matchInfo.matchId;const {client,calls}=fixture({['/match-history/v1/history/'+own]:{History:[{MatchID:id,QueueID:'swiftplay'}]},['/match-details/v1/matches/'+id]:detail});
+ await client.connect('na');const stats=await client.playerStats(own);assert.equal(stats.matches[0].queue,'swiftplay');assert.deepEqual(stats.modes,['all']);
+ const url=new URL(calls.find(c=>c.url.includes('/match-history/')).url);assert.equal(url.searchParams.has('queue'),false);
+ for(let i=0;i<45;i++)await client.request('glz','/pregame/v1/players/'+own);
+ assert.equal(client.featureDiagnostics.history.entries,1);assert.ok(!JSON.stringify(client.featureDiagnostics).includes(own));
+});
+test('changing queue filters uses a separate cache and sends the selected server filter',async()=>{
+ const detail=structuredClone(require('./fixtures/client-match-detail.json'));const id=detail.matchInfo.matchId;
+ const other=structuredClone(detail);other.matchInfo.matchId=party;other.matchInfo.queueID='swiftplay';
+ const {client,calls}=fixture({['/match-history/v1/history/'+own]:(url)=>({History:[{MatchID:new URL(url).searchParams.get('queue')==='swiftplay'?party:id,QueueID:new URL(url).searchParams.get('queue') || 'competitive'}]}),['/match-details/v1/matches/'+id]:detail,['/match-details/v1/matches/'+party]:other});
+ await client.connect('na');await client.playerStats(own,['competitive']);await client.playerStats(own,['swiftplay']);
+ assert.equal(calls.filter(c=>c.url.includes('/match-history/')).length,2);assert.equal(client.statsCache.size,2);assert.equal(new URL(calls.filter(c=>c.url.includes('/match-history/')).at(-1).url).searchParams.get('queue'),'swiftplay');
+});
+test('locker reads optional privacy omissions, uses canonical entitlement route and blocks unsafe writes',async()=>{
+ const {client,calls}=fixture({['/personalization/v2/players/'+own+'/playerloadout']:{Subject:own,Guns:[],Identity:{HideAccountLevel:true}},['/store/v1/entitlements/'+own+'/']:{EntitlementsByTypes:[]}});
+ await client.connect('na');const inventory=await client.inventory();assert.deepEqual(inventory.loadout.Sprays,[]);assert.ok(inventory.warnings.length);assert.ok(calls.some(c=>c.url.endsWith('/entitlements/'+own+'/')));
+ await assert.rejects(client.equip({kind:'card'},{}),/privacy settings/);assert.ok(!calls.some(c=>c.opts.method==='PUT'&&c.url.includes('playerloadout')));
+});
+test('locker falls back to category entitlements and still shows current loadout on ownership failure',async()=>{
+ const {client}=fixture({['/personalization/v2/players/'+own+'/playerloadout']:{Subject:own,Guns:[],Identity:{},Sprays:[],Incognito:true},['/store/v1/entitlements/'+own+'/'+ITEM_TYPES.skin]:{Entitlements:[{ItemID:level}]}});
+ await client.connect('na');const inventory=await client.inventory();assert.equal(inventory.owned[ITEM_TYPES.skin][0].id,level);assert.ok(inventory.warnings.length);
+});
+test('masked roster participants load permitted history without revealing a withheld name',async()=>{
+ const hidden='44444444-4444-4444-4444-444444444444';const detail=structuredClone(require('./fixtures/client-match-detail.json'));detail.players[0].subject=hidden;for(const round of detail.roundResults)for(const player of round.playerStats)if(player.subject===own)player.subject=hidden;
+ const id=detail.matchInfo.matchId;const {client}=fixture({['/core-game/v1/players/'+own]:{MatchID:party},['/core-game/v1/matches/'+party]:{Players:[{Subject:own,TeamID:'Blue'},{Subject:hidden,TeamID:'Red',PlayerIdentity:{Incognito:true}}]},'/name-service/v2/players':[],['/match-history/v1/history/'+hidden]:{History:[{MatchID:id,QueueID:'competitive'}]},['/match-details/v1/matches/'+id]:detail});
+ await client.connect('na');const roster=await client.roster();assert.equal(roster.players[1].name,'Hidden player');const stats=await client.playerStats(hidden);assert.equal(stats.metrics.kd,1.9);assert.equal(stats.metrics.played,1);assert.ok(client.session);
 });

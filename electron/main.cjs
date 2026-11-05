@@ -1,16 +1,19 @@
 'use strict';
 
-const { net, app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage, clipboard } = require('electron');
+const { net, app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage, clipboard, screen } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { analyzeMatch, summary } = require('../src/analytics.cjs');
 const { importFiles, scanFolder, exportCSV, mergeMatches } = require('./local-data.cjs');
 const { getCatalog } = require('./catalog.cjs');
 const { enrichStore, presentLocker } = require('./presentation.cjs');
+const Modes=require('../src/modes.js');
+const {mergeClientHistory}=require('./history-sync.cjs');
+const {shouldShowAgentPanel,panelBounds}=require('./agent-panel.cjs');
 const { MatchMonitor } = require('./match-monitor.cjs');
 const { RiotClient } = require('./client.cjs');
 const { DEFAULT_KEYS, normalizeKey, Shortcuts } = require('./shortcuts.cjs');
-const shortcuts = new Shortcuts(globalShortcut,{overlay:toggleOverlay,interaction:toggleInteractive});
+const shortcuts = new Shortcuts(globalShortcut,{overlay:toggleOverlay});
 const primaryInstance=app.requestSingleInstanceLock();
 if (!primaryInstance) app.quit();
 app.on('second-instance', () => showMain());
@@ -23,17 +26,18 @@ async function clientOperation(operation) {
   clientBusy=true;
   try {return {ok:true,...await operation()};}
   catch(error) {return {ok:false,error:error.message};}
-  finally {clientBusy=false;notifyChanged();}
+  finally {clientBusy=false;if(!client.session){matchMonitor?.stop();updateAgentPanel(null);}notifyChanged();}
 }
 
 const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
 const AGENTS = new Set(['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Viper', 'Vyse', 'Waylay', 'Yoru']);
 const DEFAULTS = Object.freeze({
   riotId: '', puuid: '', region: 'na', favorites: ['Jett', 'Omen', 'Sage'],
-  autoConnect: true, syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98, overlayShortcut: DEFAULT_KEYS.overlay, interactionShortcut: DEFAULT_KEYS.interaction
+  autoConnect: true, syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98, overlayShortcut: DEFAULT_KEYS.overlay, statsModes: ['all']
 });
 let mainWindow = null;
 let overlayWindow = null;
+let agentWindow=null;
 let preferences = { ...DEFAULTS };
 let matches = [];
 let overlayInteractive = false;
@@ -75,7 +79,7 @@ function sanitizeSettings(input) {
     minimizeToTray: value.minimizeToTray !== false,
     overlayOpacity: Math.max(0.65, Math.min(1, Number(value.overlayOpacity) || 0.98)),
     overlayShortcut: normalizeKey(value.overlayShortcut) || DEFAULT_KEYS.overlay,
-    interactionShortcut: normalizeKey(value.interactionShortcut) || DEFAULT_KEYS.interaction
+    statsModes: Modes.normalize(value.statsModes)
   };
 }
 function safeMatches(input) {
@@ -93,13 +97,14 @@ function safeMatches(input) {
     }));
 }
 function appState() {
+  const visibleMatches=matches.filter(m=>Modes.includes(preferences.statsModes,m.queue));
   return {
     desktop: {visible: Boolean(mainWindow && mainWindow.isVisible())},
     match: matchMonitor?.snapshot || null,
     settings: preferences,
-    matches: matches.slice(0, 500),
-    metrics: summary(matches),
-    matchCount: matches.length,
+    matches: visibleMatches.slice(0, 500),
+    metrics: summary(visibleMatches),
+    matchCount: visibleMatches.length, storedMatchCount:matches.length,
     overlay: { visible: !!(overlayWindow && overlayWindow.isVisible()), interactive: overlayInteractive },
     apiConfigured: !!process.env.RIOT_API_KEY,
     rsoConfigured: Boolean(process.env.VTS_API_BASE_URL),
@@ -110,7 +115,7 @@ function appState() {
   };
 }
 function broadcast(channel, payload) {
-  [mainWindow, overlayWindow].forEach(win => {
+  [mainWindow, overlayWindow, agentWindow].forEach(win => {
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   });
 }
@@ -123,7 +128,7 @@ function secureWindow(win) {
 }
 function openLocal(win, overlay) {
   win.loadFile(path.join(__dirname, '../src/index.html'), {
-    query: { mode: overlay ? 'overlay' : 'desktop' }
+    query: { mode: typeof overlay==='string'?overlay:overlay?'overlay':'desktop' }
   });
 }
 function createMain() {
@@ -194,16 +199,21 @@ function hideOverlay() {
 function toggleOverlay() {
   if(!overlayWindow || overlayWindow.isDestroyed())return appState().overlay;
   if(overlayWindow.isVisible())return hideOverlay();
-  overlayWindow.showInactive();return updateOverlay();
+  overlayInteractive=true;overlayWindow.setIgnoreMouseEvents(false);overlayWindow.setFocusable(true);
+  overlayWindow.show();overlayWindow.focus();return updateOverlay();
 }
-function toggleInteractive() {
-  if(!overlayWindow || overlayWindow.isDestroyed())return appState().overlay;
-  overlayInteractive=!overlayInteractive;
-  overlayWindow.setFocusable(overlayInteractive);
-  overlayWindow.setIgnoreMouseEvents(!overlayInteractive,{forward:true});
-  if(overlayInteractive){overlayWindow.show();overlayWindow.focus();}
-  else overlayWindow.blur();
-  return updateOverlay();
+function updateAgentPanel(snapshot){
+  if(!agentWindow||agentWindow.isDestroyed())return;
+  if(!shouldShowAgentPanel(snapshot)){agentWindow.hide();return;}
+  if(!agentWindow.isVisible()){
+    const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    agentWindow.setBounds(panelBounds(display));agentWindow.showInactive();
+  }
+}
+function createAgentPanel(){
+  agentWindow=new BrowserWindow({...panelBounds(screen.getPrimaryDisplay()),frame:false,show:false,transparent:true,resizable:false,skipTaskbar:true,alwaysOnTop:true,focusable:true,hasShadow:false,backgroundColor:'#00000000',webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+  agentWindow.setAlwaysOnTop(true,'screen-saver');agentWindow.setIgnoreMouseEvents(false);secureWindow(agentWindow);openLocal(agentWindow,'agent');
+  agentWindow.on('close',e=>{if(!isQuitting){e.preventDefault();agentWindow.hide();}});
 }
 async function importMatches() {
   if (!preferences.puuid) return { ok: false, error: 'Set your own PUUID in Settings before importing.' };
@@ -271,7 +281,6 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     {label: 'Open VTS', click: showDashboard},
     {label: 'Show / hide overlay', click: toggleOverlay},
-    {label: 'Toggle overlay interaction', click: toggleInteractive},
     {label: 'Hide app to tray', click: () => mainWindow?.hide()},
     {type: 'separator'},
     {label: 'Quit VTS', click: () => app.quit()}
@@ -430,20 +439,20 @@ async function disconnectRiot() {
 function registerIPC() {
   ipcMain.handle('app:state', () => appState());
   ipcMain.handle('client:connect', () => clientOperation(async()=>{
-    matchMonitor?.stop();client.disconnect();broadcast('client:cleared',{});notifyChanged();
+    matchMonitor?.stop();updateAgentPanel(null);client.disconnect();broadcast('client:cleared',{});notifyChanged();
     const result=await client.connect(preferences.region);matchMonitor?.start();return result;
   }));
-  ipcMain.handle('client:disconnect', () => {matchMonitor?.stop();preferences.autoConnect=false;writeJSON('settings.json',preferences);client.disconnect();notifyChanged();broadcast('client:cleared',{});return {ok:true};});
+  ipcMain.handle('client:disconnect', () => {matchMonitor?.stop();updateAgentPanel(null);preferences.autoConnect=false;writeJSON('settings.json',preferences);client.disconnect();notifyChanged();broadcast('client:cleared',{});return {ok:true};});
   ipcMain.handle('client:roster-state', () => ({ok:true,snapshot:matchMonitor?.snapshot || null}));
   ipcMain.handle('client:roster-refresh', () => {matchMonitor?.tick();return {ok:true};});
   ipcMain.handle('client:diagnostics', () => {
-    const report={version:app.getVersion(),connected:Boolean(client.session),region:preferences.region,phase:matchMonitor?.snapshot?.phase || 'unknown',requests:client.diagnostics};
+    const report={version:app.getVersion(),connected:Boolean(client.session),region:preferences.region,phase:matchMonitor?.snapshot?.phase || 'unknown',features:client.featureDiagnostics,requests:client.diagnostics};
     clipboard.writeText(JSON.stringify(report,null,2));return {ok:true};
   });
   ipcMain.handle('client:sync-history', (_event,confirmProfileChange=false) => clientOperation(async()=>{
     const s=client.session;if(!s)throw new Error('Connect Riot Client first.');
     if(preferences.puuid&&preferences.puuid!==s.puuid&&matches.length&&!confirmProfileChange)return {needsProfileSwitch:true};
-    const stats=await client.playerStats(s.puuid);
+    const stats=await client.playerStats(s.puuid,preferences.statsModes);
     if(client.session!==s)throw new Error('The account connection changed.');
     if(preferences.puuid&&preferences.puuid!==s.puuid)matches=[];
     preferences=sanitizeSettings({...preferences,puuid:s.puuid});writeJSON('settings.json',preferences);
@@ -473,7 +482,7 @@ function registerIPC() {
     await shell.openExternal('https://tracker.gg/valorant/profile/riot/'+encodeURIComponent(riotId)+'/overview');return {ok:true};
   });
   ipcMain.handle('client:stats', (_event,puuid) => clientOperation(async()=>{
-    const target=puuid || client.session?.puuid;const stats=await client.playerStats(target);
+    const target=puuid || client.session?.puuid;const stats=await client.playerStats(target,preferences.statsModes);
     broadcast('stats:updated',{puuid:target,isOwn:target===client.session?.puuid,stats});return {stats};
   }));
   ipcMain.handle('client:action', (_event, action, agent) => clientOperation(async()=>{
@@ -485,10 +494,12 @@ function registerIPC() {
   }));
   ipcMain.handle('app:settings', (_event, settings) => {
     const next=sanitizeSettings(settings);
-    shortcuts.apply({overlay:next.overlayShortcut,interaction:next.interactionShortcut});
+    shortcuts.apply({overlay:next.overlayShortcut});
     const oldPuuid = preferences.puuid;
-    if (next.region !== preferences.region){matchMonitor?.stop();client.disconnect();}
+    if (next.region !== preferences.region){matchMonitor?.stop();updateAgentPanel(null);client.disconnect();}
+    const modesChanged=Modes.key(next.statsModes)!==Modes.key(preferences.statsModes);
     preferences = next;
+    if(modesChanged){broadcast('stats:cleared',{});matchMonitor?.setModes(next.statsModes);}
     if (oldPuuid && preferences.puuid !== oldPuuid) {
       // Imported summaries belong to the previous account.
       matches = [];
@@ -514,7 +525,6 @@ function registerIPC() {
   ipcMain.handle('app:leaderboard', getLeaderboard);
   ipcMain.handle('overlay:action', (_event, action) => {
     if (action === 'toggle') return toggleOverlay();
-    if (action === 'interaction') return toggleInteractive();
     if (action === 'hide' && overlayWindow) {
       return hideOverlay();
     }
@@ -543,12 +553,18 @@ app.whenReady().then(() => {
   linkedSession = loadRiotSession();
   matches = safeMatches(readJSON('matches.json', [])).sort((a, b) => b.timestamp - a.timestamp);
   matchMonitor=new MatchMonitor(client,{
-    onSnapshot:snapshot=>broadcast('match:updated',snapshot),
-    onError:error=>{broadcast('match:error',{error});if(!client.session){matchMonitor.stop();broadcast('client:cleared',{});notifyChanged();}}
+    onSnapshot:snapshot=>{
+      broadcast('match:updated',snapshot);updateAgentPanel(snapshot);
+      const history=mergeClientHistory(snapshot,client.session?.puuid,preferences.puuid,matches);
+      if(history){preferences=sanitizeSettings({...preferences,puuid:history.puuid});matches=safeMatches(history.matches);writeJSON('settings.json',preferences);writeJSON('matches.json',matches);notifyChanged();}
+    },
+    onError:error=>{broadcast('match:error',{error});if(!client.session){matchMonitor.stop();updateAgentPanel(null);broadcast('client:cleared',{});notifyChanged();}}
   });
+  matchMonitor.setModes(preferences.statsModes);
   registerIPC();
   createMain();
   createOverlay();
+  createAgentPanel();
   createTray();
   const autoConnect=async()=>{
     if(process.platform!=='win32'||!preferences.autoConnect||client.session||clientBusy)return;
@@ -561,7 +577,7 @@ app.whenReady().then(() => {
   syncInterval = setInterval(() => { try { syncLocalFolder(true); } catch (_) {} }, 60000);
   syncInterval.unref();
   if (preferences.syncFolder) { try { syncLocalFolder(true); } catch (_) {} }
-  try {shortcuts.apply({overlay:preferences.overlayShortcut,interaction:preferences.interactionShortcut});}
+  try {shortcuts.apply({overlay:preferences.overlayShortcut,});}
   catch (_) {notifyChanged();}
 });
 app.on('before-quit', () => { isQuitting = true;client.disconnect(); });

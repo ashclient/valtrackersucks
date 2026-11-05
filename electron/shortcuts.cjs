@@ -1,5 +1,5 @@
 'use strict';
-const DEFAULT_KEYS = Object.freeze({overlay:'Control+Shift+V',interaction:'Control+Shift+I'});
+const DEFAULT_KEYS = Object.freeze({overlay:'Control+Shift+V'});
 function normalizeKey(value) {
   if(typeof value!=='string')return null;
   const parts=value.split('+');const key=parts.pop();
@@ -13,8 +13,8 @@ function normalizeKey(value) {
 class Shortcuts {
   constructor(api,callbacks){this.api=api;this.callbacks=callbacks;this.current=null;this.error='';}
   apply(keys){
-    const next={overlay:normalizeKey(keys.overlay),interaction:normalizeKey(keys.interaction)};
-    if(!next.overlay||!next.interaction||next.overlay===next.interaction)throw new Error('Choose two different shortcuts. Use modifiers with a letter/number, or a function key.');
+    const next={overlay:normalizeKey(keys.overlay)};
+    if(!next.overlay)throw new Error('Use modifiers with a letter/number, or a function key.');
     if(this.current&&Object.keys(next).every(k=>next[k]===this.current[k]))return;
     const old=this.current;this.api.unregisterAll();const registered=[];
     try{

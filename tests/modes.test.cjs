@@ -1,0 +1,6 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict');
+const modes=require('../src/modes.js');const {shouldShowAgentPanel,panelBounds}=require('../electron/agent-panel.cjs');
+test('mode selection defaults to all and supports specific subsets',()=>{assert.deepEqual(modes.normalize(),['all']);assert.deepEqual(modes.normalize([]),['all']);assert.deepEqual(modes.normalize(['bad']),['all']);assert.equal(modes.includes(['all'],'new-queue'),true);assert.equal(modes.includes(['swiftplay','deathmatch'],'competitive'),false);assert.equal(modes.includes(['custom'],''),true);assert.equal(modes.key(['unrated','competitive','unrated']),'competitive,unrated');});
+test('agent panel appears during pregame and disappears for lobby, match and disconnect',()=>{assert.equal(shouldShowAgentPanel({phase:'agent-select'}),true);assert.equal(shouldShowAgentPanel({phase:'loading'}),true);for(const phase of ['lobby','match'])assert.equal(shouldShowAgentPanel({phase}),false);assert.equal(shouldShowAgentPanel(null),false);});
+test('agent panel anchors to the bottom right of the selected display work area',()=>{const bounds=panelBounds({workArea:{x:-1920,y:0,width:1920,height:1040}});assert.equal(bounds.x+bounds.width,-16);assert.equal(bounds.y+bounds.height,1024);});

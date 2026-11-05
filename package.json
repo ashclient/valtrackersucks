@@ -1,6 +1,6 @@
 {
   "name": "valtrackersucks",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Fast, privacy-aware VALORANT desktop companion",
   "main": "electron/main.cjs",

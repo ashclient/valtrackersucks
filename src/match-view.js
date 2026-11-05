@@ -2,16 +2,18 @@
 let liveSnapshot=null;
 let liveMapAssets=new Map();
 const phaseLabels={lobby:'LOBBY','agent-select':'AGENT SELECT',loading:'MAP LOADING',match:'LOADING / LIVE MATCH'};
-function clearMatchView(){liveSnapshot=null;renderMatchTables();}
+function clearMatchView(){liveSnapshot=null;rosterSnapshot=[];playerStatsCache.clear();renderMatchTables();}
 function applyMatchSnapshot(snapshot){
   if(!snapshot)return;
   if(liveSnapshot?.contextId!==snapshot.contextId)playerStatsCache.clear();
+  if(liveSnapshot&&VtsModes.key(liveSnapshot.modes)!==VtsModes.key(snapshot.modes)){ownStatsSnapshot=null;playerStatsCache.clear();}
   liveSnapshot=snapshot;rosterSnapshot=snapshot.players;
   for(const player of snapshot.players){if(player.stats&&player.puuid)playerStatsCache.set(player.puuid,player.stats);if(player.isOwn&&player.stats){ownStatsSnapshot=player.stats;if(current)renderOwnStats();}}
-  renderMatchTables();
+  renderMatchTables();if(typeof renderAgentCorner==='function')renderAgentCorner();
 }
 function currentMetrics(player){return player.stats || playerStatsCache.get(player.puuid) || null;}
 function namedMap(){
+  if(liveSnapshot?.phase==='lobby')return 'Your party';
   if(!liveSnapshot?.mapId)return 'Waiting for map';
   const map=liveMapAssets.get(liveSnapshot.mapId);return map?.name || liveSnapshot.mapId.split('/').filter(Boolean).at(-1);
 }
@@ -34,7 +36,7 @@ function partyLabel(player){
 function tableHead(compact){
   const head=document.createElement('thead');
   const group=node('tr','column-groups');
-  for(const [label,span,style]of [['',3,''],['LAST 10 · COMPETITIVE',6,'recent-group'],...compact?[]:[['THIS AGENT · IN SAMPLE',3,'agent-group']],['REPORTED',1,'peak-group']]){const th=node('th',style,label);th.colSpan=span;group.appendChild(th);}head.appendChild(group);
+  for(const [label,span,style]of [['',3,''],['RECENT · '+VtsModes.label(liveSnapshot?.modes || current?.settings.statsModes).toUpperCase(),6,'recent-group'],...compact?[]:[['THIS AGENT · IN SAMPLE',3,'agent-group']],['REPORTED',1,'peak-group']]){const th=node('th',style,label);th.colSpan=span;group.appendChild(th);}head.appendChild(group);
   const labels=node('tr');
   for(const [label,style]of [['Agent / Player','identity-column'],['Rank','rank-column'],['Party','party-column'],['K/D','recent-column'],['Win %','recent-column'],['ACS','recent-column'],['HS %','recent-column'],['ADR','recent-column'],['Games','recent-column'],...compact?[]:[['K/D','agent-column'],['Win %','agent-column'],['Games','agent-column']],['Peak','peak-column']])labels.appendChild(node('th',style,label));head.appendChild(labels);return head;
 }
@@ -49,9 +51,9 @@ function playerTableRow(player,compact){
   const rank=node('td','rank-column');const icon=badgeFor(player.rank?.tier);if(icon)rank.appendChild(icon);else rank.appendChild(node('span','muted','—'));rank.title=rankText(player.rank);if(Number.isFinite(player.rank?.rr))rank.appendChild(node('small','rank-rr',player.rank.rr+' RR'));row.appendChild(rank);
   const party=node('td','party-column');party.appendChild(partyLabel(player));row.appendChild(party);
   const data=currentMetrics(player),stats=data?.metrics;
-  if(!data){
+  if(!data||stats.played===0){
     const state=player.statsState || (player.puuid?'loading':'private');
-    const label=state==='loading'?'Loading recent stats…':state==='private'?'Profile unavailable to this session':player.statsError || 'Recent history unavailable';
+    const label=stats?.played===0?'No matches in selected modes':state==='loading'?'Loading recent stats…':state==='private'?'Profile unavailable to this session':player.statsError || 'Recent history unavailable';
     const cell=node('td','row-status '+state,label);cell.colSpan=6;cell.title=label;row.appendChild(cell);
   }else{
     for(const value of [metric(stats.kd),metric(stats.winRate,'%'),metric(stats.acs),metric(stats.hs,'%'),metric(stats.adr),stats.played])row.appendChild(node('td','recent-column stat-number',value));
@@ -82,7 +84,7 @@ function placeholderRows(body,team,count,compact){
 }
 function createMatchTable(compact=false){
   const table=node('table','tracker-match-table');
-  const columns=document.createElement('colgroup');for(const width of [compact?190:170,45,36,48,48,48,48,48,40,...compact?[]:[48,48,40],39]){const col=document.createElement('col');col.style.width=width+'px';columns.appendChild(col);}table.appendChild(columns);
+  const columns=document.createElement('colgroup');for(const width of [compact?190:150,40,34,40,40,40,40,40,36,...compact?[]:[40,40,36],35]){const col=document.createElement('col');col.style.width=width+'px';columns.appendChild(col);}table.appendChild(columns);
   table.appendChild(tableHead(compact));const body=document.createElement('tbody');
   const allies=rosterSnapshot.filter(p=>p.team==='Your team'),enemies=rosterSnapshot.filter(p=>p.team==='Opponent');
   allies.forEach(player=>body.appendChild(playerTableRow(player,compact)));
@@ -98,9 +100,9 @@ function fillProfile(parent){
   const rank=badgeFor(own?.rank?.tier,'profile-rank');if(rank)body.appendChild(rank);
   body.appendChild(node('small','','SIGNED-IN PLAYER'));body.appendChild(node('h2','',own?.name || 'Your profile'));body.appendChild(node('p','',own?.rank?rankText(own.rank):'Waiting for rank'));profile.appendChild(body);parent.appendChild(profile);
   const status=node('div','profile-phase');status.appendChild(node('strong','',phaseLabels[liveSnapshot?.phase] || 'WAITING FOR CLIENT'));status.appendChild(node('small','',namedMap()));parent.appendChild(status);
-  const sample=node('div','profile-sample');sample.appendChild(node('small','','LAST 10 COMPETITIVE'));
+  const sample=node('div','profile-sample');sample.appendChild(node('small','','RECENT · '+VtsModes.label(liveSnapshot?.modes || current?.settings.statsModes).toUpperCase()));
   const stats=own&&currentMetrics(own)?.metrics;for(const [label,value]of [['K/D',metric(stats?.kd)],['Win rate',metric(stats?.winRate,'%')],['ACS',metric(stats?.acs)],['Matches',stats?.played ?? '—']]){const item=node('div');item.appendChild(node('span','',label));item.appendChild(node('strong','',value));sample.appendChild(item);}parent.appendChild(sample);
-  const source=node('p','profile-source','Riot Client data. Recent sample, not lifetime Tracker scores. Click a name only for additional details.');parent.appendChild(source);
+  const source=node('p','profile-source','Riot Client data. Recent sample, not lifetime Tracker scores. Select a player for match details.');parent.appendChild(source);
   const button=node('button','text-button','Copy endpoint diagnostics');button.addEventListener('click',async()=>{await window.vts.copyDiagnostics();button.textContent='Diagnostics copied';});parent.appendChild(button);
 }
 function renderMatchTables(){
