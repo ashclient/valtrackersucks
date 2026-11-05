@@ -53,7 +53,7 @@ function analyzeMatch(match, ownPuuid) {
     timestamp: number(match.matchInfo && match.matchInfo.gameStartMillis) || Date.now(),
     map: mapName(match.matchInfo && match.matchInfo.mapId),
     agentId: String(player.characterId || ''),
-    queue: String((match.matchInfo && (match.matchInfo.queueId || match.matchInfo.queueID)) || 'Unknown'),
+    queue: String((match.matchInfo && (match.matchInfo.queueId ?? match.matchInfo.queueID)) ?? 'Unknown') || 'custom',
     result: team && typeof team.won === 'boolean' ? (team.won ? 'WIN' : 'LOSS') : 'UNKNOWN',
     kills: kills, deaths: deaths, assists: assists,
     kd: round(kills / Math.max(1, deaths), 2),

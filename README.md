@@ -2,7 +2,7 @@
 
 An independent VALORANT desktop app with automatic party and match statistics, a separate game overlay, shop, locker, agent controls and local match history. It connects to your signed-in Riot Client on Windows. An optional approved Riot Sign On integration is available separately.
 
-**Development version:** v0.5.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
+**Development version:** v0.6.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
 
 ## Install VTS (Windows)
 
@@ -30,10 +30,11 @@ Sign in to Riot Client first. VTS attempts to connect automatically on Windows; 
 - **Store:** shows daily offers, accessory offers, featured bundles, Night Market discounts when active, wallet balances and reset times. Daily prices fall back to Riot's offer catalog when the storefront omits them; missing prices stay unavailable. VP, RP and Kingdom Credits are displayed separately. It reads the signed-in account's rotating offers. VALORANT can be closed, but Riot Client must stay running and signed in. Refresh explicitly to load offers.
 - **Party:** refresh lobby state, ready/unready your own account, and start/cancel matchmaking as party leader. VALORANT must be in a lobby.
 - **Agent select:** explicitly select or lock an agent in the current pregame session. Locking asks for confirmation. This can act while the game UI is loading into agent select; it does not change an agent after locking or after the match starts.
-- **Locker:** loads owned weapon skins, unlocked levels/variants, cards, titles, sprays and buddy copies. Select an item to inspect it, then choose Equip. The backend reloads the server loadout and entitlements, checks ownership, and changes only the requested slot. It preserves unrelated weapons and privacy settings. No purchase requests are implemented.
-- **Live match:** the default view shows a profile beside a dense ally/enemy table, with rank, party, K/D, win rate, ACS, headshot percentage, ADR, games played, selected-agent sample and reported peak. Both windows update automatically every five seconds; player histories load in the background without clicks. Data is a sample of up to 10 competitive games, cached for five minutes. Empty and rejected histories have explicit row states.
+- **Locker:** opens automatically when connected and loads owned weapon skins, unlocked levels/variants, cards, titles, sprays and buddy copies. It handles the canonical trailing-slash entitlement route, older route variants, and category-scoped ownership responses. If ownership or artwork is unavailable, the current equipped loadout remains visible with warnings and a retry control. Select an item to inspect it, then choose Equip. The backend reloads the server loadout and entitlements, checks ownership, and changes only the requested slot. It preserves unrelated weapons and privacy settings. No purchase requests are implemented.
+- **Live match:** the default view shows a profile beside a dense ally/enemy table, with rank, party, K/D, win rate, ACS, headshot percentage, ADR, games played, selected-agent sample and reported peak. Both windows update automatically every five seconds; player histories load in the background without clicks. Data is a sample of up to 10 games from your selected queues, cached for five minutes. Empty and rejected histories have explicit row states.
 - **Match phases:** own party members load in the lobby, allied players load during agent select, and opponents load as soon as Riot includes them in pregame or provisioned core-game responses, including map loading. Future opponents are not assigned in the lobby; VTS cannot display a roster that Riot has not supplied.
-- **Names and parties:** displays Riot IDs returned by the signed-in session's name service, including masked in-game handles when the service returns them. Withheld identities and rejected histories remain unavailable. Matching **P#** badges identify confirmed current parties; hover to see members. **Past** means shared parties in completed games only, not a confirmed current group. VTS does not invent enemy party membership when it is absent from the response.
+- **Names and parties:** displays Riot IDs returned by the signed-in session's name service, including masked in-game handles when the service returns them. Name visibility and history access are independent: a masked roster participant can have stats if Riot allows the history request. Withheld identities stay masked, and rejected histories stay unavailable. Matching **P#** badges identify confirmed current parties; hover to see members. **Past** means shared parties in completed games only, not a confirmed current group. VTS does not invent enemy party membership when it is absent from the response.
+- **Mode selection:** all queues are included by default. Use **Live match → Stats from** for one queue, or **Settings → Statistics modes** for any combination. The selection applies to player histories, overlay samples, Performance, Career and saved match history. Switching modes clears old samples, uses separate caches and discards in-flight results from the previous selection. History samples scan at most 100 recent entries to find up to 10 matching games. Modes without team outcomes show no win rate; unavailable combat fields stay blank.
 - **Performance / history:** Sync Riot matches uses your local Riot Client session to import your own completed games, without requiring the optional RSO login. Changing an existing local profile asks before replacing its stored summaries.
 - **Tracker.gg:** a player's report can open their Tracker.gg profile in the browser. VTS does not use a Tracker.gg API or scrape private profiles. The layout uses the published Tracker live-match and agent-select screens as references; VTS implements its own interface and uses Riot data rather than proprietary Tracker scores.
 - Existing offline match imports, career summaries, presets, overlay, catalog browser and CSV exports remain available. History and map breakdowns now include all retained summaries (up to 500), rather than only the latest 40.
@@ -63,14 +64,14 @@ The public catalog/version service uses `valorant-api.com`; artwork uses `media.
 
 | Shortcut | Function |
 | --- | --- |
-| **Ctrl + Shift + V** | Show or hide overlay |
-| **Ctrl + Shift + I** | Toggle between click-through and interactive overlay |
+| **Ctrl + Shift + V** | Open or close the clickable match overlay |
+| **Escape** | Close the focused match overlay |
 
 The desktop app and overlay are separate windows. With **Minimize to system tray** enabled (the default), minimizing or closing the desktop hides it while VTS and its global shortcuts keep running. Click the tray icon or choose **Open VTS** to restore it; **Quit VTS** ends the app and overlay. Launching VTS again restores the existing instance.
 
-The overlay starts hidden, stays above ordinary windows, and appears without taking keyboard focus when its show/hide shortcut is pressed. The interaction shortcut makes it clickable and focusable; hiding it resets click-through mode. It has Agent picks and Match players tabs, plus an Open app button. Select/lock and player requests still require a connected Riot Client and the appropriate match phase.
+The match overlay starts hidden. Its single global shortcut opens it clickable and focusable; the same shortcut or Escape closes it. There is no second interaction keybind. Change the shortcut and opacity in **Settings**. A conflicting shortcut preserves the last working binding.
 
-Change both keybindings and opacity in **Settings**. To change a binding, click its field, press the desired keys, and choose **Save shortcuts**. A conflicting binding reports an error and preserves the last working shortcuts. When the OS refuses registration at startup, Settings reports that failure. The default bindings above remain the defaults.
+A separate, always-clickable **agent selector** appears automatically at the bottom right of the display nearest the cursor during agent select and provisioned pregame loading. It shows all public catalog agents, disables locked ally picks, and requires an inline confirmation before locking. It hides on transition to the core match, on cancellation back to the lobby, or on disconnect. Agent selection is only possible while Riot still accepts pregame actions; it cannot change a locked agent after the match starts. The match overlay toggle does not control this panel.
 
 Global hotkey dispatch, custom bindings, separate windows, hide/show, and tray persistence were exercised in the Linux/X11 cloud desktop. Real Windows tray interaction and display above a running VALORANT window remain unverified. Use Borderless Windowed mode; ordinary Electron overlays cannot guarantee visibility over exclusive fullscreen.
 
@@ -116,6 +117,9 @@ The backend is a minimal **single-process reference deployment**. For public pro
 - `electron/presentation.cjs` — catalog joins and owned-item locker presentation.
 - `src/companion.js` and `src/companion.css` — store, locker, player reports and expanded overlay.
 - `electron/client.cjs` — local Riot Client session, shop, party, agent, roster and player-history requests.
+- `electron/agent-panel.cjs` — pregame visibility and multi-display corner placement.
+- `src/modes.js` — shared queue selection and labels.
+- `src/menu.js` and `src/menu.css` — redesigned menu, queue controls and agent selector.
 - `electron/match-monitor.cjs` — shared phase polling, bounded background stats hydration and stale-result suppression.
 - `src/match-view.js` and `src/match-view.css` — automatic desktop and overlay roster tables.
 - `electron/main.cjs` — Windows/tray lifecycle, overlay, IPC, local and approved account integrations.
@@ -127,6 +131,10 @@ The backend is a minimal **single-process reference deployment**. For public pro
 - `scripts/generate-icons.cjs` — branded Windows icon generation.
 - `tests/` — analytics, catalog, data, icon and backend tests.
 - `.github/workflows/windows.yml` — CI, EXE packaging, artifact upload and release.
+
+## Design skill
+
+[UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) is installed in `.agents/skills/ui-ux-pro-max` with its license. [VTS design decisions](design-system/vts/MASTER.md) record the applicable dashboard guidance. Development skill files are excluded from packaged apps.
 
 ## Riot / legal notice
 

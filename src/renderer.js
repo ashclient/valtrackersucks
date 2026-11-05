@@ -12,7 +12,10 @@ const titles = {
   client: 'Shop', overview: 'Performance', career: 'Career', matches: 'Match history',
   agents: 'Agent presets', leaderboard: 'Leaderboard', library: 'Collection', locker: 'Locker', settings: 'Settings'
 };
-const overlayMode = new URLSearchParams(location.search).get('mode') === 'overlay';
+const windowMode=new URLSearchParams(location.search).get('mode');
+const agentMode=windowMode==='agent';
+const overlayMode=agentMode||windowMode==='overlay';
+document.body.classList.toggle('is-agent-panel',agentMode);
 document.body.classList.toggle('is-overlay', overlayMode);
 let current = null;
 let activePage = 'client';
@@ -61,7 +64,8 @@ function showToast(message, error) {
 function showPage(page) {
   if (overlayMode || !titles[page]) return;
   activePage = page;
-  if(page==='settings'&&current)fillSettings();
+  if(page==='settings'&&current){fillSettings();renderModeSettings();}
+  if(page==='locker'&&localConnected&&!lockerSnapshot&&!lockerLoading)refreshLocker();
   document.body.classList.toggle('is-live-view',page==='client'&&clientTab==='players');
   document.querySelectorAll('.view').forEach(e => e.classList.toggle('active', e.dataset.view === page));
   document.querySelectorAll('.nav-btn').forEach(e => {
@@ -228,8 +232,8 @@ function renderMetrics() {
   text('folder-path', current.settings.syncFolder || 'No folder selected');
   $('key-status').classList.toggle('ok', current.apiConfigured);
   text('overlay-show-key', readableShortcut(current.settings.overlayShortcut));
-  text('overlay-interact-key', readableShortcut(current.settings.interactionShortcut));
-  text('overlay-input-mode',current.overlay.interactive?'Interactive':'Click-through');
+
+  text('overlay-input-mode','Clickable · Esc to close');
   text('shortcut-status',current.shortcuts?.registered?'Shortcuts are active, including while the app is in the tray.':current.shortcuts?.error || 'Shortcuts are not registered.');
   text('overlay-match-count', m.played + ' local ' + (m.played === 1 ? 'match' : 'matches') + ' analyzed');
 }
@@ -272,6 +276,8 @@ function renderAll() {
   renderMatches();
   renderFavorites();
   renderMaps();
+  renderModeSummary();
+  if(agentMode)renderAgentCorner();
   if(ownStatsSnapshot)renderOwnStats();
 }
 async function importMatches() {
@@ -336,7 +342,7 @@ function fillSettings() {
   $('setting-opacity').value = Math.round((current.settings.overlayOpacity || 0.98) * 100);
   text('opacity-label', $('setting-opacity').value + '%');
   $('shortcut-overlay').value=current.settings.overlayShortcut || 'Control+Shift+V';
-  $('shortcut-interaction').value=current.settings.interactionShortcut || 'Control+Shift+I';
+
 }
 
 function renderLibrary() {
@@ -408,6 +414,7 @@ function clientControls() {
   document.querySelector('.status-pill').classList.toggle('connected',localConnected);
   text('data-status',localConnected?'Client connected':'Client offline');
   document.querySelector('[data-view="client"]').setAttribute('aria-busy',String(localBusy));
+  text('top-client-connect',localBusy?'Connecting…':localConnected?'Reconnect':'Connect client');$('top-client-connect').disabled=localBusy;
   text('client-connect',localBusy?'Working…':localConnected?'Reconnect':'Connect client');
   text('client-status',localConnected?'Connected to your signed-in account.':'Not connected. Sign in to Riot Client to get started.');
   $('client-connect').disabled=localBusy;
@@ -431,7 +438,7 @@ async function runClient(operation) {
 }
 function readableShortcut(value) {return String(value || '').replace(/Control/g,'Ctrl').replace(/Super/g,'Win').split('+').join(' + ');}
 function bind() {
-  for(const id of ['shortcut-overlay','shortcut-interaction']){
+  for(const id of ['shortcut-overlay']){
     $(id).addEventListener('keydown',event=>{
       if(event.key==='Tab')return;
       event.preventDefault();if(event.key==='Escape'){fillSettings();$(id).blur();return;}
@@ -445,7 +452,7 @@ function bind() {
   }
   $('save-shortcuts').addEventListener('click',async()=>{
     try{
-      current=await window.vts.saveSettings({...current.settings,overlayShortcut:$('shortcut-overlay').value,interactionShortcut:$('shortcut-interaction').value});
+      current=await window.vts.saveSettings({...current.settings,overlayShortcut:$('shortcut-overlay').value});
       renderAll();fillSettings();
     }catch(error){text('shortcut-status',error.message);}
   });
@@ -498,7 +505,7 @@ function bind() {
   });
   ['top-import', 'hero-import', 'matches-import'].forEach(id => $(id).addEventListener('click', importMatches));
   ['top-overlay', 'hero-overlay', 'settings-overlay'].forEach(id => $(id).addEventListener('click', () => overlayAction('toggle')));
-  $('settings-interaction').addEventListener('click', () => overlayAction('interaction'));
+
   $('overlay-close').addEventListener('click', () => overlayAction('hide'));
   $('load-board').addEventListener('click', loadLeaderboard);
   $('setting-opacity').addEventListener('input', event => text('opacity-label', event.target.value + '%'));
@@ -588,13 +595,13 @@ function bind() {
       showToast('Preferences saved locally.');
     } catch (error) { showToast('Could not save: ' + error.message, true); }
   });
-  window.vts.on('state:changed', next => { current = next; renderAll(); });
+  window.vts.on('state:changed', next => { const connectedNow=!current?.clientConnected&&next.clientConnected;current = next; renderAll();if(connectedNow&&activePage==='locker')refreshLocker(); });
   window.vts.on('client:cleared',clearCompanion);
   window.vts.on('locker:changed',next=>{lockerSnapshot=next;renderLocker();});
   window.vts.on('overlay:changed', next => {
     if(overlayMode && next.visible && document.querySelector('[data-overlay-tab=players]').classList.contains('active'))refreshRoster(true,true);
     if (overlayMode) {
-      text('overlay-input-mode',next.interactive?'Interactive':'Click-through');
+      text('overlay-input-mode','Clickable · Esc to close');
     }
   });
 }
@@ -603,12 +610,12 @@ async function start() {
     document.body.textContent = 'VTS must be launched with Electron. Run npm start.';
     return;
   }
-  bind();
+  bind();bindMenu();
   try {
     current = await window.vts.getState();
     fillSettings();
     renderAll();
-    localConnected=current.clientConnected;clientControls();showPage('client');if(current.match)applyMatchSnapshot(current.match);
+    localConnected=current.clientConnected;clientControls();showPage('client');renderModeSettings();if(current.match)applyMatchSnapshot(current.match);if(agentMode){document.querySelector('[data-overlay-tab=picks]').click();renderAgentCorner();}
     loadCatalog();loadRankCatalog();
   } catch (error) {
     if (!overlayMode) showToast('Cannot initialize app: ' + error.message, true);

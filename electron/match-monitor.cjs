@@ -1,10 +1,12 @@
 'use strict';
+const Modes=require('../src/modes.js');
 // A single owner for phase polling and automatic stat hydration across both windows.
 class MatchMonitor {
   constructor(client,{onSnapshot=()=>{},onError=()=>{},interval=5000,concurrency=2}={}){
     this.client=client;this.onSnapshot=onSnapshot;this.onError=onError;this.interval=interval;this.concurrency=concurrency;
-    this.timer=null;this.running=false;this.epoch=0;this.pending=false;this.snapshot=null;this.jobs=new Set();this.activeLoads=0;
+    this.modes=['all'];this.timer=null;this.running=false;this.epoch=0;this.pending=false;this.snapshot=null;this.jobs=new Set();this.activeLoads=0;
   }
+  setModes(selection){const next=Modes.normalize(selection);if(Modes.key(next)===Modes.key(this.modes))return;this.modes=next;this.epoch++;this.jobs.clear();this.snapshot=null;if(this.running)this.tick();}
   start(){this.stop();this.running=true;this.tick();this.timer=setInterval(()=>this.tick(),this.interval);this.timer.unref?.();}
   stop(){this.running=false;this.epoch++;this.jobs.clear();if(this.timer)clearInterval(this.timer);this.timer=null;this.snapshot=null;}
   publish(){if(this.running&&this.snapshot)this.onSnapshot(structuredClone(this.snapshot));}
@@ -21,7 +23,7 @@ class MatchMonitor {
       this.snapshot={...next,players:next.players.map(p=>{
         const old=previous.get(p.puuid);
         return {...p,rank:old?.rank || p.rank,peakTier:old?.peakTier,stats:old?.stats || null,statsState:p.puuid?(old?.statsState || 'loading'):'private',statsError:old?.statsError || '',retryAt:old?.retryAt || 0};
-      }),updatedAt:Date.now(),source:'Riot Client · last 10 competitive matches'};
+      }),updatedAt:Date.now(),modes:this.modes,source:'Riot Client · '+Modes.label(this.modes)};
       this.publish();this.hydrate(this.epoch,session);
     }catch(error){if(this.running&&(session===this.client.session||!this.client.session))this.onError(error.message);}
     finally{this.pending=false;}
@@ -37,7 +39,7 @@ class MatchMonitor {
     let stats=null,rank=null,error='';
     try{
       [stats,rank]=await Promise.all([
-        this.client.playerStats(row.puuid).catch(e=>{error=e.message;return null;}),
+        this.client.playerStats(row.puuid,this.modes).catch(e=>{error=e.message;return null;}),
         this.client.playerRank(row.puuid).catch(()=>null)
       ]);
       if(!this.running||epoch!==this.epoch)return;

@@ -4,6 +4,7 @@ let shopSnapshot=null;
 let storeTab='offers';
 let storeError='';
 let lockerSnapshot=null;
+let lockerLoading=false;
 let lockerTab='weapons';
 let lockerWeapon=null;
 let inspectedItem=null;
@@ -135,8 +136,8 @@ function inspectLocker(item){
     const slot=selector('Spray slot',lockerSnapshot.spraySlots.map((x,i)=>({id:x.EquipSlotID,name:'Slot '+(i+1)})));change.slotId=slot.value;slot.addEventListener('change',()=>change.slotId=slot.value);
   }
   if(lockerTab==='buddies'){change.weaponId=weapon?.id;change.instanceId=item.instanceId;parent.appendChild(node('p','control-note','Equip on '+(weapon?.name || 'the selected weapon')+'. The selected buddy copy will move if it is used elsewhere.'));}
-  const status=node('p','inspector-status','Changes apply only when you choose Equip.');status.setAttribute('role','status');
-  const button=node('button','btn btn-primary','Equip '+(lockerTab==='weapons'?'skin':change.kind));button.type='button';button.disabled=!localConnected;
+  const status=node('p','inspector-status',lockerSnapshot.canEquip===false?'Riot returned an incomplete loadout. Refresh to enable equipping.':'Changes apply only when you choose Equip.');status.setAttribute('role','status');
+  const button=node('button','btn btn-primary','Equip '+(lockerTab==='weapons'?'skin':change.kind));button.type='button';button.disabled=!localConnected||lockerSnapshot.canEquip===false;
   button.addEventListener('click',async()=>{
     button.disabled=true;status.textContent='Updating your loadout…';
     try{const result=await window.vts.clientEquip(change);if(!result.ok)throw Error(result.error);lockerSnapshot=result.locker;inspectedItem=null;renderLocker();showToast('Loadout updated.');}
@@ -158,7 +159,7 @@ function reportBody(parent,stats){
   const metrics=node('div','report-metrics');
   for(const [label,value]of [['K/D',metric(stats.metrics.kd)],['ACS',metric(stats.metrics.acs)],['WIN RATE',metric(stats.metrics.winRate,'%')],['HEADSHOTS',metric(stats.metrics.hs,'%')]]){const cell=node('div');cell.appendChild(node('small','',label));cell.appendChild(node('strong','',value));metrics.appendChild(cell);}parent.appendChild(metrics);
   const form=node('div','recent-form');for(const match of stats.matches){const cell=node('span',match.result==='WIN'?'form-win':match.result==='LOSS'?'form-loss':'form-unknown',match.result==='WIN'?'W':match.result==='LOSS'?'L':'?');cell.title=match.map+' · '+match.kills+'/'+match.deaths+'/'+match.assists;form.appendChild(cell);}parent.appendChild(form);
-  if(!stats.matches.length)parent.appendChild(node('p','report-source','No recent competitive matches returned.'));
+  if(!stats.matches.length)parent.appendChild(node('p','report-source','No recent games returned for the selected modes.'));
   for(const match of stats.matches.slice(0,5))renderMatch(parent,match);
   if(stats.unavailable)parent.appendChild(node('p','report-source',stats.unavailable+' match details were unavailable.'));
 }
@@ -167,7 +168,7 @@ async function loadPlayerReport(player,inOverlay){
   const parent=$(inOverlay?'overlay-report-body':'player-detail-body');
   const tracker=$('player-tracker');tracker.disabled=!player.name.includes('#');tracker.onclick=()=>window.vts.openTracker(player.name);
   if(inOverlay){$('overlay-report').classList.remove('hidden');text('overlay-report-name',player.name);}else{text('player-detail-name',player.name);if(!$('player-detail').open)$('player-detail').showModal();}
-  collectionEmpty(parent,'Loading player report','Fetching recent completed competitive matches.');
+  collectionEmpty(parent,'Loading player report','Fetching recent completed games for the selected modes.');
   try{
     const result=await window.vts.clientStats(player.puuid);if(generation!==reportGeneration)return;if(!result.ok)throw Error(result.error);
     playerStatsCache.set(player.puuid,result.stats);reportBody(parent,result.stats);renderRoster();
@@ -178,8 +179,8 @@ function renderOwnStats(){
   const m=ownStatsSnapshot.metrics;
   for(const [id,value]of [['metric-kd',metric(m.kd)],['metric-acs',metric(m.acs)],['metric-win',metric(m.winRate,'%')],['metric-hs',metric(m.hs,'%')]])text(id,value);
   $('metric-kd').parentElement.querySelector('.stat-sub').textContent='Total kills / deaths · recent games';
-  text('overview-subtitle','Recent competitive matches · Riot Client · '+m.played+' games');
-  text('mode-indicator','RECENT COMPETITIVE');
+  text('overview-subtitle','Recent matches · Riot Client · '+m.played+' games');
+  text('mode-indicator',VtsModes.label(current.settings.statsModes).toUpperCase());
   const recent=$('overview-matches');empty(recent);ownStatsSnapshot.matches.slice(0,4).forEach(match=>renderMatch(recent,match));
   renderOverlayMetrics();
 }
@@ -187,28 +188,35 @@ function renderOverlayMetrics(){
   const stats=ownStatsSnapshot?.metrics || current?.metrics;
   const parent=$('overlay-quick-stats');empty(parent);
   for(const [label,value]of [['K/D',metric(stats?.kd)],['ACS',metric(stats?.acs)],['WIN',metric(stats?.winRate,'%')]]){const box=node('div');box.appendChild(node('small','',label));box.appendChild(node('strong','',value));parent.appendChild(box);}
-  if(ownStatsSnapshot)text('overlay-match-count',ownStatsSnapshot.metrics.played+' recent competitive matches · Riot Client');
-  parent.title=ownStatsSnapshot?'Recent competitive matches from Riot Client':'Saved local match summaries';
+  if(ownStatsSnapshot)text('overlay-match-count',ownStatsSnapshot.metrics.played+' recent matches · Riot Client');
+  parent.title=ownStatsSnapshot?'Recent selected-mode matches from Riot Client':'Saved local match summaries';
 }
 function bindCompanion(){
   bindMatchView();
   document.querySelectorAll('[data-store-tab]').forEach(button=>button.addEventListener('click',()=>{storeTab=button.dataset.storeTab;document.querySelectorAll('[data-store-tab]').forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});renderStore();}));
   document.querySelectorAll('[data-locker-tab]').forEach(button=>button.addEventListener('click',()=>{lockerTab=button.dataset.lockerTab;inspectedItem=null;document.querySelectorAll('[data-locker-tab]').forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});renderLocker();}));
   $('locker-search').addEventListener('input',renderLocker);
-  $('locker-refresh').addEventListener('click',()=>runClient(async()=>{
-    text('locker-status','Loading owned items and current loadout…');const result=await window.vts.clientLocker();
-    if(!result.ok){text('locker-status',result.error);return result;}lockerSnapshot=result.locker;inspectedItem=null;renderLocker();return result;
-  }));
+  $('locker-refresh').addEventListener('click',()=>runClient(refreshLocker));
   $('own-stats-refresh').addEventListener('click',()=>runClient(async()=>{
-    text('overview-subtitle','Loading your recent competitive matches…');const result=await window.vts.clientStats();
-    if(!result.ok){text('overview-subtitle',result.error);return result;}ownStatsSnapshot=result.stats;renderOwnStats();return result;
+    text('overview-subtitle','Loading recent matches for your selected modes…');const result=await window.vts.clientStats();
+    if(!result.ok){text('overview-subtitle',result.error);return result;}if(VtsModes.key(result.stats.modes)!==VtsModes.key(current.settings.statsModes))return {ok:true};ownStatsSnapshot=result.stats;renderOwnStats();return result;
   }));
   $('player-detail-close').addEventListener('click',()=>$('player-detail').close());
   $('overlay-report-close').addEventListener('click',()=>$('overlay-report').classList.add('hidden'));
-  window.vts.on('stats:updated',value=>{if(value.isOwn){ownStatsSnapshot=value.stats;renderOwnStats();}else if(value.puuid)playerStatsCache.set(value.puuid,value.stats);if(rosterSnapshot.length)renderRoster();});
+  window.vts.on('stats:updated',value=>{if(VtsModes.key(value.stats.modes)!==VtsModes.key(current.settings.statsModes))return;if(value.isOwn){ownStatsSnapshot=value.stats;renderOwnStats();}else if(value.puuid)playerStatsCache.set(value.puuid,value.stats);if(rosterSnapshot.length)renderRoster();});
   setInterval(()=>{
     if(shopSnapshot&&activePage==='client'&&clientTab==='shop')renderStoreCountdown();
   },1000);
+}
+async function refreshLocker(){
+  if(lockerLoading)return {ok:true};
+  if(!localConnected)return {ok:false,error:'Connect Riot Client first.'};
+  lockerLoading=true;$('locker-refresh').disabled=true;
+  text('locker-status','Loading your weapons and owned items…');
+  if(!lockerSnapshot)collectionEmpty($('locker-items'),'Loading locker…','Fetching your loadout and ownership from Riot.');
+  try{const result=await window.vts.clientLocker();if(!result.ok)throw Error(result.error);lockerSnapshot=result.locker;inspectedItem=null;renderLocker();return result;}
+  catch(error){text('locker-status',error.message);if(!lockerSnapshot){collectionEmpty($('locker-items'),'Locker could not load',error.message);const retry=node('button','btn btn-secondary','Retry');retry.addEventListener('click',refreshLocker);$('locker-items').appendChild(retry);}return {ok:false,error:error.message};}
+  finally{lockerLoading=false;$('locker-refresh').disabled=!localConnected;}
 }
 function renderStoreCountdown(){
   if(!shopSnapshot || storeError)return;

@@ -8,3 +8,6 @@ out/
 !.env.example
 assets/icon.ico
 assets/icon.png
+
+__pycache__/
+*.pyc

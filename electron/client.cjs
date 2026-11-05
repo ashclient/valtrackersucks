@@ -6,6 +6,7 @@ const https = require('node:https');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const REGIONS = {na:'na-1',eu:'eu-1',ap:'ap-1',kr:'kr-1',br:'na-1',latam:'na-1'};
 const { normalizeStore, ITEM_TYPES } = require('./store.cjs');
+const Modes=require('../src/modes.js');
 const { analyzeMatch, aggregateRecent, playerId } = require('../src/analytics.cjs');
 const PLATFORM = Buffer.from(JSON.stringify({platformType:'PC',platformOS:'Windows',platformOSVersion:'10.0.19045.1.256.64bit',platformChipset:'Unknown'})).toString('base64');
 function parseLockfile(raw) {
@@ -32,7 +33,7 @@ class RiotClient {
     this.fetch=fetchJSON; this.readLockfile=readLockfile || (()=>{
       if(process.platform!=='win32'||!process.env.LOCALAPPDATA)throw new Error('Local Riot Client connection requires Windows.');
       return fs.readFile(path.join(process.env.LOCALAPPDATA,'Riot Games','Riot Client','Config','lockfile'),'utf8');
-    }); this.local=localRequest;this.session=null;this.generation=0;this.visiblePlayers=new Set();this.statsCache=new Map();this.matchCache=new Map();this.rankCache=new Map();this.statsInflight=new Map();this.matchInflight=new Map();this.localLock=null;this.diagnostics=[];this.partyCache=null;this.nameCache=new Map();
+    }); this.local=localRequest;this.session=null;this.generation=0;this.visiblePlayers=new Set();this.statsCache=new Map();this.matchCache=new Map();this.rankCache=new Map();this.statsInflight=new Map();this.matchInflight=new Map();this.localLock=null;this.diagnostics=[];this.partyCache=null;this.nameCache=new Map();this.featureDiagnostics={};
   }
   disconnect(){this.generation++;this.session=null;this.visiblePlayers.clear();this.statsCache.clear();this.matchCache.clear();this.rankCache.clear();this.statsInflight.clear();this.matchInflight.clear();this.localLock=null;this.partyCache=null;this.nameCache.clear();}
   async connect(region) {
@@ -58,12 +59,15 @@ class RiotClient {
     if(s!==this.session)throw new Error('The account connection changed. Refresh and try again.');
     this.diagnostics.push({at:new Date().toISOString(),service,method,path:route.split('?')[0].replace(/[a-f0-9]{8}-[a-f0-9-]{27,}/gi,':id'),status:response.status});
     if(this.diagnostics.length>40)this.diagnostics.shift();
+    const feature=route.includes('/name-service/')?'names':route.includes('/match-history/')?'history':route.includes('/match-details/')?'matchDetails':route.includes('/playerloadout')?'loadout':route.includes('/entitlements/')?'ownership':route.includes('/mmr/')?'rank':null;
+    if(feature)this.featureDiagnostics[feature]={...this.diagnostics.at(-1)};
     if(response.status===403&&permissionFailure)return null;
     if(response.status===401||response.status===403){if(this.session===s)this.disconnect();throw new Error('Riot rejected this session. Reconnect Riot Client and check your region.');}
     if(response.status===404)return null;
     if(!response.ok)throw new Error(response.status===429?'Riot rate limit reached. Wait before retrying.':'Riot Client request failed (HTTP '+response.status+'). Refresh before retrying.');
     if(response.status===204)return {};
     const result=await response.json();
+    if(feature){const record=this.featureDiagnostics[feature];if(feature==='names')Object.assign(record,{requested:Array.isArray(body)?body.length:null,returned:Array.isArray(result)?result.length:null,named:Array.isArray(result)?result.filter(p=>p.GameName).length:null});if(feature==='history')Object.assign(record,{historyArray:Array.isArray(result?.History),entries:result?.History?.length ?? null,total:result?.Total ?? null});if(feature==='loadout')Object.assign(record,{guns:Array.isArray(result?.Guns),identity:Boolean(result?.Identity),sprays:Array.isArray(result?.Sprays),privacy:typeof result?.Incognito==='boolean'});if(feature==='ownership')Object.assign(record,{groups:result?.EntitlementsByTypes?.length ?? null,entries:result?.Entitlements?.length ?? null});}
     if(s!==this.session)throw new Error('The account connection changed. Refresh and try again.');
     return result;
   }
@@ -85,17 +89,34 @@ class RiotClient {
   async inventory(){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
     const loadout=await this.request('pd',`/personalization/v2/players/${s.puuid}/playerloadout`,'GET',undefined,s);
-    if(loadout?.Subject!==s.puuid || !Array.isArray(loadout.Guns) || !Array.isArray(loadout.Sprays) || !loadout.Identity || typeof loadout.Incognito!=='boolean')throw new Error('Your loadout could not be loaded.');
-    const data=await this.request('pd',`/store/v1/entitlements/${s.puuid}`,'GET',undefined,s);
-    if(!data || !Array.isArray(data.EntitlementsByTypes))throw new Error('Your owned items could not be loaded.');
+    if(!loadout || loadout.Subject&&loadout.Subject!==s.puuid || !Array.isArray(loadout.Guns) || !loadout.Identity)throw new Error('Riot did not return your weapon loadout. Copy endpoint diagnostics.');
+    const warnings=[];const writeSafe=Array.isArray(loadout.Sprays)&&loadout.Subject===s.puuid;
+    if(!writeSafe||typeof loadout.Incognito!=='boolean')warnings.push('Equipping unavailable until Riot returns complete loadout and privacy settings.');
+    if(!Array.isArray(loadout.Sprays)){loadout.Sprays=[];warnings.push('Spray slots unavailable.');}
+    let data=await this.request('pd',`/store/v1/entitlements/${s.puuid}/`,'GET',undefined,s,{permissionFailure:true});
+    if(!data)data=await this.request('pd',`/store/v1/entitlements/${s.puuid}`,'GET',undefined,s,{permissionFailure:true});
     const owned={};
-    for(const group of data.EntitlementsByTypes)owned[group.ItemTypeID]=(group.Entitlements || []).map(item=>({id:item.ItemID,instanceId:item.InstanceID}));
-    return {loadout,owned};
+    if(Array.isArray(data?.EntitlementsByTypes)){
+      for(const group of data.EntitlementsByTypes)owned[group.ItemTypeID]=(group.Entitlements || []).map(item=>({id:item.ItemID,instanceId:item.InstanceID}));
+    }else{
+      // Some deployments only answer category-scoped entitlement requests.
+      for(const type of Object.values(ITEM_TYPES)){
+        const category=await this.request('pd',`/store/v1/entitlements/${s.puuid}/${type}`,'GET',undefined,s,{permissionFailure:true});
+        const items=category?.Entitlements || category?.EntitlementsByTypes?.find(g=>g.ItemTypeID===type)?.Entitlements;
+        if(Array.isArray(items))owned[type]=items.map(item=>({id:item.ItemID,instanceId:item.InstanceID}));
+        else warnings.push('An ownership category could not be loaded.');
+      }
+      if(!Object.keys(owned).length)warnings.push('Ownership unavailable; showing equipped items only. Retry or copy endpoint diagnostics.');
+    }
+    return {loadout,owned,writeSafe,warnings:[...new Set(warnings)]};
   }
+
   async equip(change, catalog){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
     if(!change || !['weapon','card','title','spray','buddy'].includes(change.kind))throw new Error('Choose a supported locker item.');
-    const {loadout,owned}=await this.inventory();
+    const {loadout,owned,writeSafe}=await this.inventory();
+    if(typeof loadout.Incognito!=='boolean')throw new Error('Riot omitted privacy settings. Refresh before changing your loadout.');
+    if(!writeSafe)throw new Error('Riot returned an incomplete loadout. Refresh before equipping.');
     const has=(type,id)=>(owned[type]||[]).some(x=>x.id===id);
     // Work on the freshest server loadout, preserving unrelated slots and settings.
     const body=structuredClone({Guns:loadout.Guns,Sprays:loadout.Sprays,Identity:loadout.Identity,Incognito:loadout.Incognito});
@@ -130,38 +151,46 @@ class RiotClient {
     if(result?.Subject!==s.puuid)throw new Error('Riot did not confirm the loadout change. Refresh your locker.');
     return result;
   }
-  async playerStats(puuid){
+  async playerStats(puuid,selection=['all']){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
     if(puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('Only your account and visible players in the current roster can be queried.');
-    const cached=this.statsCache.get(puuid);if(cached&&cached.expires>Date.now())return {...cached.value,cached:true};
-    if(this.statsInflight.has(puuid))return this.statsInflight.get(puuid);
-    const work=this.fetchPlayerStats(puuid,s);this.statsInflight.set(puuid,work);
-    try{return await work;}finally{if(this.statsInflight.get(puuid)===work)this.statsInflight.delete(puuid);}
+    const cacheKey=puuid+'|'+Modes.key(selection);
+    const cached=this.statsCache.get(cacheKey);if(cached&&cached.expires>Date.now())return {...cached.value,cached:true};
+    if(this.statsInflight.has(cacheKey))return this.statsInflight.get(cacheKey);
+    const work=this.fetchPlayerStats(puuid,s,selection,cacheKey);this.statsInflight.set(cacheKey,work);
+    try{return await work;}finally{if(this.statsInflight.get(cacheKey)===work)this.statsInflight.delete(cacheKey);}
   }
-  async fetchPlayerStats(puuid,s){
-    const history=await this.request('pd',`/match-history/v1/history/${puuid}?startIndex=0&endIndex=10&queue=competitive`,'GET',undefined,s,{permissionFailure:true});
-    if(!history || !Array.isArray(history.History)){
-      const status=this.diagnostics.filter(d=>d.path.includes('/match-history/')).at(-1)?.status;
-      throw new Error('Recent history unavailable'+(status?' (HTTP '+status+')':'')+'.');
+  async fetchPlayerStats(puuid,s,selection,cacheKey){
+    const modes=Modes.normalize(selection);let rows=[];
+    for(let start=0;start<100&&rows.length<10;start+=20){
+      const query=new URLSearchParams({startIndex:String(start),endIndex:String(start+20)});
+      if(modes.length===1&&!['all','custom'].includes(modes[0]))query.set('queue',modes[0]);
+      const history=await this.request('pd',`/match-history/v1/history/${puuid}?${query}`,'GET',undefined,s,{permissionFailure:true});
+      if(!Array.isArray(history?.History)){
+        const status=this.diagnostics.filter(d=>d.path.includes('/match-history/')).at(-1)?.status;
+        throw new Error('Recent history unavailable'+(status?' (HTTP '+status+')':'')+'. Copy endpoint diagnostics.');
+      }
+      for(const row of history.History)if(Modes.includes(modes,row.QueueID)&&!rows.some(old=>old.MatchID===row.MatchID))rows.push(row);
+      if(history.History.length<20||Number.isFinite(history.Total)&&start+20>=history.Total)break;
     }
     const matches=[];const partners=new Map();let unavailable=0;
-    for(const row of history.History.slice(0,10)){
+    for(const row of rows.slice(0,10)){
       if(s!==this.session||puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('The visible roster changed.');
       if(!UUID.test(row.MatchID))continue;
       try{
-        const detail=await this.matchDetail(row.MatchID,s);matches.push(analyzeMatch(detail,puuid));
+        const detail=await this.matchDetail(row.MatchID,s);const parsed=analyzeMatch(detail,puuid);if(!Modes.includes(modes,parsed.queue))continue;matches.push(parsed);
         const owner=detail.players.find(p=>playerId(p)===puuid),party=owner?.partyId;
         if(party)for(const other of detail.players){const id=playerId(other);if(id!==puuid&&other.partyId===party&&this.visiblePlayers.has(id)){const old=partners.get(id)||{puuid:id,matches:0,lastPlayedAt:0};old.matches++;old.lastPlayedAt=Math.max(old.lastPlayedAt,detail.matchInfo?.gameStartMillis || 0);partners.set(id,old);}}
       }
       catch(error){if(!this.session||this.session!==s)throw error;unavailable++;}
     }
-    if(!matches.length&&history.History.length)throw new Error('Match details did not contain usable player stats. Copy diagnostics from the app.');
+    if(!matches.length&&rows.length)throw new Error('Match details did not contain usable player stats. Copy diagnostics from the app.');
     if(s!==this.session || puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('The visible roster changed.');
     const agents={};
     for(const id of new Set(matches.map(m=>m.agentId).filter(Boolean)))agents[id]=aggregateRecent(matches.filter(m=>m.agentId===id));
-    const value={source:'Riot Client · last 10 competitive matches',metrics:aggregateRecent(matches),agents,recentPartyPartners:[...partners.values()],matches,unavailable,fetchedAt:Date.now()};
+    const value={source:'Riot Client · recent '+Modes.label(modes),modes,metrics:aggregateRecent(matches),agents,recentPartyPartners:[...partners.values()],matches,unavailable,fetchedAt:Date.now()};
     if(this.statsCache.size>=50)this.statsCache.delete(this.statsCache.keys().next().value);
-    this.statsCache.set(puuid,{value,expires:Date.now()+300000});return value;
+    this.statsCache.set(cacheKey,{value,expires:Date.now()+300000});return value;
   }
   async matchDetail(id,s){
     if(this.matchCache.has(id))return this.matchCache.get(id);
@@ -201,7 +230,7 @@ class RiotClient {
   async roster(){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
     const presence=await this.selfPresence();
-    let phase='lobby',contextId='lobby',mapId='',queue='',players=[],notice='',enemyExpected=0,party=null;
+    let phase='lobby',contextId='lobby',mapId='',queue=presence?.queueId || '',players=[],notice='',enemyExpected=0,party=null;
     if(presence?.sessionLoopState!=='MENUS'){
       const pre=await this.request('glz',`/pregame/v1/players/${s.puuid}`,'GET',undefined,s,{permissionFailure:true});
       const core=await this.request('glz',`/core-game/v1/players/${s.puuid}`,'GET',undefined,s,{permissionFailure:true});
@@ -237,17 +266,17 @@ class RiotClient {
     }
     names=candidates.map(p=>this.nameCache.get(p.Subject)).filter(Boolean);
     const visible=candidates.filter(p=>p.Subject===s.puuid||p.PlayerIdentity?.Incognito===false||names.some(n=>n.Subject===p.Subject));
-    this.visiblePlayers=new Set(visible.map(p=>p.Subject));
+    this.visiblePlayers=new Set(candidates.map(p=>p.Subject));
     const partyMembers=new Set((party?.Members || []).map(p=>p.Subject));
     const groups=new Map();
     for(const player of players){const id=player.PartyID || (partyMembers.has(player.Subject)?party?.ID || 'own-party':null);if(id){if(!groups.has(id))groups.set(id,[]);groups.get(id).push(player.Subject);}}
     const partyGroups=[...groups.values()].filter(group=>group.length>1);
     const rows=players.slice(0,10).map((player,index)=>{
-      const allowed=this.visiblePlayers.has(player.Subject),name=allowed&&names.find(n=>n.Subject===player.Subject);
+      const allowed=visible.some(p=>p.Subject===player.Subject),name=allowed&&names.find(n=>n.Subject===player.Subject);
       const partyIndex=partyGroups.findIndex(group=>group.includes(player.Subject));
-      return {slot:index,...partyIndex>=0?{partyGroup:'P'+(partyIndex+1),partySource:'Current Riot party'}:{},agentId:player.CharacterID || '',isOwn:player.Subject===s.puuid,selectionState:player.CharacterSelectionState || '',name:allowed?(name?.GameName?name.GameName+'#'+name.TagLine:player.Subject===s.puuid?'You':'Player'):'Hidden player',team:player.TeamID===own.TeamID?'Your team':'Opponent',rank:Number.isInteger(player.CompetitiveTier)?{tier:player.CompetitiveTier,rr:null}:null,...allowed?{puuid:player.Subject}:{}};
+      return {slot:index,...partyIndex>=0?{partyGroup:'P'+(partyIndex+1),partySource:'Current Riot party'}:{},agentId:player.CharacterID || '',isOwn:player.Subject===s.puuid,selectionState:player.CharacterSelectionState || '',name:allowed?(name?.GameName?name.GameName+'#'+name.TagLine:player.Subject===s.puuid?'You':'Player'):'Hidden player',team:player.TeamID===own.TeamID?'Your team':'Opponent',rank:Number.isInteger(player.CompetitiveTier)?{tier:player.CompetitiveTier,rr:null}:null,...this.visiblePlayers.has(player.Subject)?{puuid:player.Subject}:{}};
     });
-    return {contextId,phase,mapId,queue,players:rows,enemyExpected,notice};
+    return {contextId,phase,mapId,queue,players:rows,enemyExpected,notice };
   }
   async lobby(){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');

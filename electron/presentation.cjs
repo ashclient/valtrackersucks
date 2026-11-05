@@ -24,12 +24,13 @@ function presentLocker(inventory,catalog){
   const weapons=(catalog.weapons||[]).map(weapon=>{
     const equipped=loadout.Guns.find(g=>g.ID===weapon.id);
     const skins=weapon.skins.map(skin=>{
-      const levels=skin.levels.filter(l=>has(ITEM_TYPES.skin,l.id)||equipped?.SkinLevelID===l.id);
+      const levels=skin.levels.filter(l=>has(ITEM_TYPES.skin,l.id)||has(ITEM_TYPES.skin,skin.id)||equipped?.SkinLevelID===l.id);
       return {...skin,levels,chromas:skin.chromas.filter((c,i)=>i===0||has(ITEM_TYPES.chroma,c.id)||equipped?.ChromaID===c.id)};
     }).filter(skin=>skin.levels.length);
     return {id:weapon.id,name:weapon.name,image:weapon.image,category:weapon.category,equipped,skins};
   }).filter(w=>w.equipped || w.skins.length);
-  const result={weapons,profile:loadout.Identity,spraySlots:loadout.Sprays,warnings:catalog.warnings || []};
+  for(const gun of loadout.Guns){if(!weapons.some(w=>w.id===gun.ID))weapons.push({id:gun.ID,name:'Equipped weapon',image:null,equipped:gun,skins:[{id:gun.SkinID,name:'Equipped skin',image:null,levels:[{id:gun.SkinLevelID,name:'Current level'}],chromas:[{id:gun.ChromaID,name:'Current variant'}]}]});}
+  const result={weapons,canEquip:inventory.writeSafe!==false&&typeof loadout.Incognito==='boolean',profile:loadout.Identity,spraySlots:loadout.Sprays,warnings:[...(inventory.warnings || []),...(catalog.warnings || [])]};
   for(const [kind,type]of Object.entries({cards:ITEM_TYPES.card,titles:ITEM_TYPES.title,sprays:ITEM_TYPES.spray})){
     result[kind]=(catalog[kind]||[]).filter(item=>has(type,item.id));
   }
