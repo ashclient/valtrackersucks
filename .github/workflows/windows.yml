@@ -55,12 +55,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "v0.2.0"
-          $artifacts = Get-ChildItem "dist" -Filter "*.exe"
+          $artifacts = @(Get-ChildItem "dist" -Filter "*.exe")
           if ($artifacts.Count -lt 1) { throw "No Windows installers created" }
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exePaths = @($artifacts | ForEach-Object { $_.FullName })
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag "dist/*.exe" --clobber --repo $env:GITHUB_REPOSITORY
+            gh release upload $tag @exePaths --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag "dist/*.exe" --title "VTS v0.2.0" --notes "Independent VALORANT desktop companion for Windows. Includes local match analytics, agent presets, lightweight overlay, static skin library and optional Riot-approved RSO integration. Unsigned build; Riot live account features require approved credentials." --target $env:GITHUB_SHA --latest --repo $env:GITHUB_REPOSITORY
+            gh release create $tag @exePaths --title "VTS v0.2.0" --notes "Independent VALORANT desktop companion for Windows. Includes local match analytics, agent presets, lightweight overlay, static skin library and optional Riot-approved RSO integration. Unsigned build; Riot live account features require approved credentials." --target $env:GITHUB_SHA --latest --repo $env:GITHUB_REPOSITORY
           }
 
