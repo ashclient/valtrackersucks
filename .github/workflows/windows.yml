@@ -31,6 +31,7 @@ jobs:
           node --check electron/store.cjs
           node --check electron/presentation.cjs
           node --check src/companion.js
+          node --check electron/history-sync.cjs
           node --check electron/agent-panel.cjs
           node --check src/modes.js
           node --check src/menu.js

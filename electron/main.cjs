@@ -8,6 +8,7 @@ const { importFiles, scanFolder, exportCSV, mergeMatches } = require('./local-da
 const { getCatalog } = require('./catalog.cjs');
 const { enrichStore, presentLocker } = require('./presentation.cjs');
 const Modes=require('../src/modes.js');
+const {mergeClientHistory}=require('./history-sync.cjs');
 const {shouldShowAgentPanel,panelBounds}=require('./agent-panel.cjs');
 const { MatchMonitor } = require('./match-monitor.cjs');
 const { RiotClient } = require('./client.cjs');
@@ -551,7 +552,11 @@ app.whenReady().then(() => {
   linkedSession = loadRiotSession();
   matches = safeMatches(readJSON('matches.json', [])).sort((a, b) => b.timestamp - a.timestamp);
   matchMonitor=new MatchMonitor(client,{
-    onSnapshot:snapshot=>{broadcast('match:updated',snapshot);updateAgentPanel(snapshot);},
+    onSnapshot:snapshot=>{
+      broadcast('match:updated',snapshot);updateAgentPanel(snapshot);
+      const history=mergeClientHistory(snapshot,client.session?.puuid,preferences.puuid,matches);
+      if(history){preferences=sanitizeSettings({...preferences,puuid:history.puuid});matches=safeMatches(history.matches);writeJSON('settings.json',preferences);writeJSON('matches.json',matches);notifyChanged();}
+    },
     onError:error=>{broadcast('match:error',{error});if(!client.session){matchMonitor.stop();updateAgentPanel(null);broadcast('client:cleared',{});notifyChanged();}}
   });
   matchMonitor.setModes(preferences.statsModes);
