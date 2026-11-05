@@ -49,7 +49,7 @@ function sanitizeSettings(input) {
     riotId: id,
     puuid: puuid,
     region: REGIONS.has(region) ? region : 'na',
-    favorites: [...new Set(favorites.filter(x => AGENTS.has(x)))].slice(0, 3),
+    favorites: [...new Set(favorites.filter(x => typeof x === 'string' && x.length > 0 && x.length <= 40 && /^[A-Za-z0-9 /'-]+$/.test(x)))].slice(0, 3),
     syncFolder: typeof value.syncFolder === 'string' ? value.syncFolder.slice(0, 1200) : '',
     launchAtLogin: value.launchAtLogin === true,
     minimizeToTray: value.minimizeToTray !== false,
