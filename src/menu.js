@@ -27,7 +27,7 @@ function renderAgentCorner(){
     button.addEventListener('click',()=>chooseCornerAgent(agent));grid.appendChild(button);
   }
   text('agent-chosen',agentCatalog.find(a=>a.id===agentChosen)?.name || 'Choose an agent');
-  $('agent-confirm').textContent=locked?'Locked in':'Lock agent';$('agent-confirm').disabled=locked||agentActionBusy||!agentChosen||!current?.clientConnected||!['agent-select','loading'].includes(liveSnapshot?.phase);
+  $('agent-confirm').textContent=locked?'Locked in':$('agent-confirm').dataset.confirm===agentChosen?'Confirm lock':'Lock agent';$('agent-confirm').disabled=locked||agentActionBusy||!agentChosen||!current?.clientConnected||!['agent-select','loading'].includes(liveSnapshot?.phase);
 }
 async function chooseCornerAgent(agent){
   if(agentActionBusy)return;agentActionBusy=true;agentChosen=agent.id;delete $('agent-confirm').dataset.confirm;renderAgentCorner();

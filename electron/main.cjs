@@ -205,9 +205,10 @@ function toggleOverlay() {
 function updateAgentPanel(snapshot){
   if(!agentWindow||agentWindow.isDestroyed())return;
   if(!shouldShowAgentPanel(snapshot)){agentWindow.hide();return;}
-  const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  agentWindow.setBounds(panelBounds(display));
-  if(!agentWindow.isVisible())agentWindow.showInactive();
+  if(!agentWindow.isVisible()){
+    const display=screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    agentWindow.setBounds(panelBounds(display));agentWindow.showInactive();
+  }
 }
 function createAgentPanel(){
   agentWindow=new BrowserWindow({...panelBounds(screen.getPrimaryDisplay()),frame:false,show:false,transparent:true,resizable:false,skipTaskbar:true,alwaysOnTop:true,focusable:true,hasShadow:false,backgroundColor:'#00000000',webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
