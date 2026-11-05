@@ -1,10 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { analyzeMatch, summary } = require('../src/analytics.cjs');
-const { importFiles, scanFolder, exportCSV } = require('./local-data.cjs');
+const { importFiles, scanFolder, exportCSV, mergeMatches } = require('./local-data.cjs');
 const { getCatalog } = require('./catalog.cjs');
 
 const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
@@ -19,6 +19,7 @@ let preferences = { ...DEFAULTS };
 let matches = [];
 let overlayInteractive = false;
 let isQuitting = false;
+let linkedSession = null;
 let tray = null;
 let syncInterval = null;
 const catalogCache = new Map();
@@ -77,7 +78,8 @@ function appState() {
     matchCount: matches.length,
     overlay: { visible: !!(overlayWindow && overlayWindow.isVisible()), interactive: overlayInteractive },
     apiConfigured: !!process.env.RIOT_API_KEY,
-    rsoConfigured: Boolean(process.env.VTS_RSO_CONNECT_URL),
+    rsoConfigured: Boolean(process.env.VTS_API_BASE_URL),
+    linkedAccount: linkedSession && linkedSession.account ? linkedSession.account : null,
     version: app.getVersion()
   };
 }
@@ -288,16 +290,98 @@ async function getCachedCatalog(kind) {
     return {ok:false,error:error.message};
   }
 }
-async function connectRiot() {
-  const target = process.env.VTS_RSO_CONNECT_URL || '';
-  if (!target) return {ok:false, error:'Riot account sign-in needs a production-approved RSO client and a secure OAuth backend. VTS does not have those credentials yet.'};
+function rsoBase() {
+  const target = process.env.VTS_API_BASE_URL || '';
+  if (!target) throw new Error('Riot linking needs a Riot-approved client and a deployed HTTPS VTS API backend.');
+  const url = new URL(target);
+  if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search || url.pathname !== '/')
+    throw new Error('VTS_API_BASE_URL must be an HTTPS origin, e.g. https://api.example.com/');
+  return url.origin;
+}
+function sessionFile() { return storePath('riot-session.enc'); }
+function loadRiotSession() {
   try {
-    const parsed = new URL(target);
-    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) throw new Error('Invalid RSO backend URL: HTTPS is required.');
-    // This is only an external authorized login portal. It does not grant client-control permissions.
-    await shell.openExternal(parsed.href);
-    return {ok:true, launched:true, note:'Complete authorization in your browser. VTS requires an approved backend to sync identity.'};
+    if (!safeStorage.isEncryptionAvailable()) return null;
+    const raw = fs.readFileSync(sessionFile());
+    const decoded = JSON.parse(safeStorage.decryptString(raw));
+    if (!/^[A-Za-z0-9_-]{30,120}$/.test(decoded.token)) return null;
+    return decoded;
+  } catch (_) { return null; }
+}
+function saveRiotSession(value) {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  fs.writeFileSync(sessionFile(), safeStorage.encryptString(JSON.stringify(value)), {mode: 0o600});
+  return true;
+}
+function wipeRiotSession() {
+  try { fs.unlinkSync(sessionFile()); } catch (_) {}
+}
+async function backendJSON(pathname, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const response = await fetch(rsoBase() + pathname, {
+      method: options.method || 'POST',
+      headers: {'Content-Type':'application/json','Accept':'application/json',
+        ...(options.token ? {'Authorization':'Bearer '+options.token} : {})},
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal:controller.signal
+    });
+    const value = await response.json();
+    if (!response.ok) throw new Error(value.error || 'VTS account service returned ' + response.status);
+    return value;
+  } finally {clearTimeout(timeout);}
+}
+async function connectRiot() {
+  try {
+    const start = await backendJSON('/api/device/start');
+    const login = new URL(start.loginUrl);
+    if (login.origin !== rsoBase() || login.protocol !== 'https:')
+      throw new Error('The account service returned an unsafe authorization URL');
+    await shell.openExternal(login.href);
+    for (let i = 0; i < 100; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const state = await backendJSON('/api/device/poll', {body:{pollSecret:start.pollSecret}});
+      if (state.status === 'linked') {
+        if (!state.account || !state.account.puuid || !state.sessionToken) throw new Error('Invalid account authorization response');
+        const previousPuuid = preferences.puuid;
+        linkedSession = {token:state.sessionToken,account:state.account};
+        const persistent = saveRiotSession(linkedSession);
+        preferences = sanitizeSettings({...preferences,
+          riotId: (state.account.gameName || '') + '#' + (state.account.tagLine || ''),
+          puuid:state.account.puuid});
+        writeJSON('settings.json',preferences);
+        if (previousPuuid && previousPuuid !== preferences.puuid) {
+          matches=[];writeJSON('matches.json',[]);
+        }
+        notifyChanged();
+        return {ok:true,account:state.account,persistent};
+      }
+    }
+    return {ok:false,error:'Riot connection timed out. Try again.'};
   } catch(error) {return {ok:false,error:error.message};}
+}
+async function syncRiotMatches() {
+  if (!linkedSession) return {ok:false,error:'Connect your Riot account first.'};
+  try {
+    const result = await backendJSON('/api/matches/sync',{
+      token:linkedSession.token, body:{region:preferences.region}});
+    const oldIds = new Set(matches.map(x => x.id));
+    const incoming=safeMatches(result.matches || []);
+    matches=safeMatches(mergeMatches(matches,incoming));
+    writeJSON('matches.json',matches);
+    notifyChanged();
+    return {ok:true,count:incoming.filter(x => !oldIds.has(x.id)).length, examined:incoming.length};
+  } catch(error) {return {ok:false,error:error.message};}
+}
+async function disconnectRiot() {
+  if (linkedSession) {
+    try {await backendJSON('/api/disconnect',{token:linkedSession.token});} catch (_) {}
+  }
+  linkedSession=null;
+  wipeRiotSession();
+  notifyChanged();
+  return {ok:true};
 }
 
 function registerIPC() {
@@ -322,6 +406,8 @@ function registerIPC() {
   ipcMain.handle('app:export-csv', exportLocalCSV);
   ipcMain.handle('app:catalog', (_event, kind) => getCachedCatalog(kind));
   ipcMain.handle('app:rso', connectRiot);
+  ipcMain.handle('app:rso-sync', syncRiotMatches);
+  ipcMain.handle('app:rso-disconnect', disconnectRiot);
   ipcMain.handle('app:clear-matches', () => {
     matches = []; writeJSON('matches.json', []); notifyChanged(); return appState();
   });
@@ -349,6 +435,7 @@ function registerIPC() {
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark';
   preferences = sanitizeSettings(readJSON('settings.json', DEFAULTS));
+  linkedSession = loadRiotSession();
   matches = safeMatches(readJSON('matches.json', [])).sort((a, b) => b.timestamp - a.timestamp);
   registerIPC();
   createMain();
