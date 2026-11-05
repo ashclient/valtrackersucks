@@ -23,11 +23,13 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Test analytics
+      - name: Test application
         run: npm test
       - name: Check app JavaScript syntax
         shell: pwsh
         run: |
+          node --check electron/client.cjs
+          node --check electron/shortcuts.cjs
           node --check electron/main.cjs
           node --check electron/preload.cjs
           node --check src/renderer.js
@@ -54,7 +56,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "v0.2.0"
+          $version = node -p "require('./package.json').version"
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Invalid application version"
+          }
+          $tag = "v$version"
           $artifacts = @(Get-ChildItem "dist" -Filter "*.exe")
           if ($artifacts.Count -lt 1) { throw "No Windows installers created" }
           $exePaths = @($artifacts | ForEach-Object { $_.FullName })
@@ -62,6 +68,6 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @exePaths --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create $tag @exePaths --title "VTS v0.2.0" --notes "Independent VALORANT desktop companion for Windows. Includes local match analytics, agent presets, lightweight overlay, static skin library and optional Riot-approved RSO integration. Unsigned build; Riot live account features require approved credentials." --target $env:GITHUB_SHA --latest --repo $env:GITHUB_REPOSITORY
+            gh release create $tag @exePaths --title "VTS $tag" --notes-file .github/RELEASE_NOTES.md --target $env:GITHUB_SHA --latest --repo $env:GITHUB_REPOSITORY
           }
 
