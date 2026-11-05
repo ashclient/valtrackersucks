@@ -6,6 +6,7 @@ const path = require('node:path');
 const { analyzeMatch, summary } = require('../src/analytics.cjs');
 const { importFiles, scanFolder, exportCSV, mergeMatches } = require('./local-data.cjs');
 const { getCatalog } = require('./catalog.cjs');
+const { enrichStore, presentLocker } = require('./presentation.cjs');
 const { RiotClient } = require('./client.cjs');
 const { DEFAULT_KEYS, normalizeKey, Shortcuts } = require('./shortcuts.cjs');
 const shortcuts = new Shortcuts(globalShortcut,{overlay:toggleOverlay,interaction:toggleInteractive});
@@ -19,7 +20,7 @@ async function clientOperation(operation) {
   clientBusy=true;
   try {return {ok:true,...await operation()};}
   catch(error) {return {ok:false,error:error.message};}
-  finally {clientBusy=false;}
+  finally {clientBusy=false;notifyChanged();}
 }
 
 const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
@@ -147,7 +148,7 @@ function createMain() {
 }
 function createOverlay() {
   overlayWindow = new BrowserWindow({
-    width: 440, height: 520, x: 48, y: 48,
+    width: 680, height: 600, x: 48, y: 48,
     frame: false, show: false, transparent: true, resizable: false,
     skipTaskbar: true, alwaysOnTop: true, focusable: false, hasShadow: false, backgroundColor: '#00000000',
     webPreferences: {
@@ -309,7 +310,7 @@ async function exportLocalCSV() {
   return {ok:true, path:result.filePath, count:matches.length};
 }
 async function getCachedCatalog(kind) {
-  if (!['agents','maps','weapons','skinlevels'].includes(kind)) return {ok:false, error:'Unknown catalog'};
+  if (!['agents','maps','weapons','skinlevels','cards','titles','sprays','buddies','bundles','ranks'].includes(kind)) return {ok:false, error:'Unknown catalog'};
   const entry = catalogCache.get(kind);
   if (entry && entry.expires > Date.now()) return {ok:true, data:entry.data, cached:true};
   try {
@@ -320,6 +321,12 @@ async function getCachedCatalog(kind) {
     if (entry) return {ok:true,data:entry.data,cached:true,stale:true};
     return {ok:false,error:error.message};
   }
+}
+async function loadItemCatalog(){
+  const kinds=['weapons','cards','sprays','titles','buddies','bundles'];
+  const entries=await Promise.all(kinds.map(async kind=>[kind,await getCachedCatalog(kind)]));
+  const catalog={warnings:[]};for(const [kind,result]of entries){catalog[kind]=result.data || [];if(!result.ok)catalog.warnings.push(kind+' artwork unavailable');}
+  return catalog;
 }
 function rsoBase() {
   const target = process.env.VTS_API_BASE_URL || '';
@@ -417,14 +424,35 @@ async function disconnectRiot() {
 
 function registerIPC() {
   ipcMain.handle('app:state', () => appState());
-  ipcMain.handle('client:connect', () => clientOperation(async()=>client.connect(preferences.region)));
-  ipcMain.handle('client:disconnect', () => {client.disconnect();return {ok:true};});
+  ipcMain.handle('client:connect', () => clientOperation(async()=>{
+    client.disconnect();broadcast('client:cleared',{});notifyChanged();return client.connect(preferences.region);
+  }));
+  ipcMain.handle('client:disconnect', () => {client.disconnect();notifyChanged();broadcast('client:cleared',{});return {ok:true};});
   ipcMain.handle('client:players', () => clientOperation(async()=>({players:await client.players()})));
   ipcMain.handle('client:lobby', () => clientOperation(async()=>({lobby:await client.lobby()})));
   ipcMain.handle('client:shop', () => clientOperation(async()=>{
-    const shop=await client.shop();
-    const catalog=await getCachedCatalog('skinlevels');
-    return {shop:{...shop,offers:shop.offers.map(offer=>({...offer,...(catalog.data||[]).find(x=>x.id===offer.id)}))}};
+    const store=await client.shop();
+    const catalog=await loadItemCatalog();
+    store.warnings.push(...catalog.warnings);return {shop:enrichStore(store,catalog)};
+  }));
+  ipcMain.handle('client:locker', () => clientOperation(async()=>{
+    const inventory=await client.inventory();const catalog=await loadItemCatalog();
+    return {locker:presentLocker(inventory,catalog)};
+  }));
+  ipcMain.handle('client:equip', (_event,change) => clientOperation(async()=>{
+    if(!client.session)throw new Error('Connect Riot Client first.');
+    const catalog=await loadItemCatalog();
+    await client.equip(change,catalog);
+    const locker=presentLocker(await client.inventory(),catalog);
+    broadcast('locker:changed',locker);return {locker};
+  }));
+  ipcMain.handle('client:tracker', async (_event,riotId) => {
+    if(typeof riotId!=='string'||riotId.length>90||!/^.+#[^#]+$/.test(riotId))return {ok:false,error:'A visible Riot ID is required.'};
+    await shell.openExternal('https://tracker.gg/valorant/profile/riot/'+encodeURIComponent(riotId)+'/overview');return {ok:true};
+  });
+  ipcMain.handle('client:stats', (_event,puuid) => clientOperation(async()=>{
+    const target=puuid || client.session?.puuid;const stats=await client.playerStats(target);
+    broadcast('stats:updated',{puuid:target,isOwn:target===client.session?.puuid,stats});return {stats};
   }));
   ipcMain.handle('client:action', (_event, action, agent) => clientOperation(async()=>{
     if (['select','lock'].includes(action)) {

@@ -10,7 +10,7 @@ const competitiveRanks = ['Unranked','Unused','Unused','Iron 1','Iron 2','Iron 3
 function rankText(rank) {return rank?(competitiveRanks[rank.tier] || 'Unknown rank')+(Number.isFinite(rank.rr)?' · '+rank.rr+' RR':''):'Rank unavailable';}
 const titles = {
   client: 'Shop', overview: 'Performance', career: 'Career', matches: 'Match history',
-  agents: 'Agent presets', leaderboard: 'Leaderboard', library: 'Collection', settings: 'Settings'
+  agents: 'Agent presets', leaderboard: 'Leaderboard', library: 'Collection', locker: 'Locker', settings: 'Settings'
 };
 const overlayMode = new URLSearchParams(location.search).get('mode') === 'overlay';
 document.body.classList.toggle('is-overlay', overlayMode);
@@ -196,6 +196,7 @@ async function toggleAgent(agent) {
 }
 function renderMetrics() {
   const m = current.metrics;
+  $('metric-kd').parentElement.querySelector('.stat-sub').textContent='Average kill/death ratio';
   text('metric-win', metric(m.winRate, '%'));
   text('metric-kd', metric(m.kd));
   text('metric-hs', metric(m.hs, '%'));
@@ -261,12 +262,15 @@ function renderMaps() {
 }
 function renderAll() {
   if (!current) return;
+  if(!current.clientConnected)clearCompanion();
+  renderOverlayMetrics();
   localConnected=Boolean(current.clientConnected);
   clientControls();
   renderMetrics();
   renderMatches();
   renderFavorites();
   renderMaps();
+  if(ownStatsSnapshot)renderOwnStats();
 }
 async function importMatches() {
   try {
@@ -369,7 +373,7 @@ async function loadCatalog(force = false) {
       const select=$('client-agent'); const selected=select.value; select.replaceChildren();
       agentCatalog.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(agent=>{const option=node('option','',agent.name);option.value=agent.id;select.appendChild(option);});
       if ([...select.options].some(x=>x.value===selected)) select.value=selected;
-      clientControls();
+      clientControls();if(rosterSnapshot.length)renderRoster();
     } else {text('agent-catalog-status', 'Offline presets available. Connect to the catalog for agent artwork and live selection.');text('client-agent','');const option=node('option','','Agent list unavailable');option.value='';$('client-agent').appendChild(option);}
   } catch(error) {
     text('agent-catalog-status', 'Offline agent list loaded.');
@@ -394,7 +398,7 @@ function shopEmpty(title='Your rotation goes here.', message='Connect Riot Clien
   $('shop-grid').replaceChildren(box);
 }
 function playersEmpty(message='No active match loaded.') {
-  const row=node('tr','table-empty');const cell=node('td','',message);cell.colSpan=3;row.appendChild(cell);$('client-player-rows').replaceChildren(row);
+  const row=node('tr','table-empty');const cell=node('td','',message);cell.colSpan=6;row.appendChild(cell);$('client-player-rows').replaceChildren(row);
 }
 function clientControls() {
   document.querySelectorAll('.client-control').forEach(button=>button.disabled=!localConnected || localBusy || (['select','lock'].includes(button.dataset.clientAction)&&!agentCatalog.length));
@@ -403,7 +407,8 @@ function clientControls() {
   document.querySelector('.status-pill').classList.toggle('connected',localConnected);
   text('data-status',localConnected?'Client connected':'Client offline');
   document.querySelector('[data-view="client"]').setAttribute('aria-busy',String(localBusy));
-  text('client-connect',localBusy?'Working…':'Connect client');
+  text('client-connect',localBusy?'Working…':localConnected?'Reconnect':'Connect client');
+  text('client-status',localConnected?'Connected to your signed-in account.':'Not connected. Sign in to Riot Client to get started.');
   $('client-connect').disabled=localBusy;
   $('client-disconnect').disabled=localBusy;
   $('client-disconnect').classList.toggle('hidden',!localConnected);
@@ -419,7 +424,7 @@ async function runClient(operation) {
   finally{
     try {localConnected=(await window.vts.getState()).clientConnected;}catch{localConnected=false;}
     localBusy=false;clientControls();
-    if(!localConnected){shopEmpty();playersEmpty();}
+    if(!localConnected){clearCompanion();shopEmpty();playersEmpty();}
     text('client-status',localConnected?'Connected to your signed-in account.':'Not connected. Sign in to Riot Client to get started.');
   }
 }
@@ -448,18 +453,8 @@ function bind() {
     document.querySelectorAll('[data-overlay-tab]').forEach(tab=>{const active=tab===button;tab.classList.toggle('active',active);tab.setAttribute('aria-pressed',String(active));});
     document.querySelectorAll('[data-overlay-pane]').forEach(pane=>pane.classList.toggle('active',pane.dataset.overlayPane===button.dataset.overlayTab));
   }));
-  $('overlay-refresh-players').addEventListener('click',async()=>{
-    const button=$('overlay-refresh-players');button.disabled=true;text('overlay-feedback','Loading players…');
-    try{
-      const result=await window.vts.clientPlayers();if(!result.ok)throw Error(result.error);
-      const parent=$('overlay-players');empty(parent);
-      result.players.forEach(player=>{
-        const row=node('div','overlay-player-row');const identity=node('div');identity.appendChild(node('strong','',player.name));identity.appendChild(node('small','',player.team));
-        row.appendChild(identity);row.appendChild(node('span','',rankText(player.rank)));parent.appendChild(row);
-      });text('overlay-feedback','Latest recorded ranks. Hidden players stay hidden.');
-    }catch(error){text('overlay-feedback',error.message);}
-    finally{button.disabled=false;}
-  });
+  $('overlay-refresh-players').addEventListener('click',()=>refreshRoster(true));
+  bindCompanion();
   $('client-connect').addEventListener('click',()=>runClient(async()=>{
     const result=await window.vts.clientConnect();
     if(result.ok)showToast('Connected. Refresh your shop or lobby.');
@@ -470,34 +465,8 @@ function bind() {
     shopEmpty();text('shop-status','Four offers. No need to launch the game.');
     text('lobby-status','Launch VALORANT to use party controls.');playersEmpty();return result;
   }));
-  $('client-shop').addEventListener('click',()=>runClient(async()=>{
-    text('shop-status','Loading your offers…');shopEmpty('Loading offers','Fetching your current daily rotation.');
-    const result=await window.vts.clientShop();
-    if(!result.ok){text('shop-status',result.error);shopEmpty('Shop unavailable','Check your connection and region, then try refreshing.');return result;}
-    empty($('shop-grid'));
-    const shop=result.shop;
-    text('shop-status',shop.offers.length+' offers · Resets '+new Date(shop.expiresAt).toLocaleString());
-    if(!shop.offers.length)shopEmpty('No offers returned','Try refreshing after checking your account region.');
-    shop.offers.forEach(offer=>{
-      const card=node('article','skin-card');const image=imageElement(offer.image,offer.name,'skin-image');
-      if(image)card.appendChild(image);
-      card.appendChild(node('strong','skin-title',offer.name || 'Unidentified offer'));
-      const vp=offer.cost['85ad13f7-3d1b-5128-9eb2-7cd8a9b7e876'];
-      card.appendChild(node('small','skin-sub',vp===undefined?'Price unavailable':vp+' VP'));
-      $('shop-grid').appendChild(card);
-    });return result;
-  }));
-  $('client-players').addEventListener('click',()=>runClient(async()=>{
-    text('players-status','Loading visible players…');empty($('client-player-rows'));
-    const result=await window.vts.clientPlayers();
-    if(!result.ok){text('players-status',result.error);playersEmpty('Player data unavailable.');return result;}
-
-    result.players.forEach(player=>{
-      const row=node('tr');const rank=player.rank;
-      [player.name,player.team,rankText(rank)].forEach(value=>row.appendChild(node('td','',value)));
-      $('client-player-rows').appendChild(row);
-    });if(!result.players.length)playersEmpty();text('players-status','Latest recorded ranks; may reflect an earlier act. Hidden identities stay hidden.');return result;
-  }));
+  $('client-shop').addEventListener('click',()=>runClient(refreshStore));
+  $('client-players').addEventListener('click',()=>runClient(()=>refreshRoster(false)));
   $('client-lobby').addEventListener('click',()=>runClient(async()=>{
     const result=await window.vts.clientLobby();
     text('lobby-status',result.ok?(result.lobby.message || result.lobby.phase+' · '+result.lobby.queue+' · '+(result.lobby.ready?'Ready':'Not ready')+(result.lobby.leader?' · Party leader':'')):result.error);
@@ -614,7 +583,10 @@ function bind() {
     } catch (error) { showToast('Could not save: ' + error.message, true); }
   });
   window.vts.on('state:changed', next => { current = next; renderAll(); });
+  window.vts.on('client:cleared',clearCompanion);
+  window.vts.on('locker:changed',next=>{lockerSnapshot=next;renderLocker();});
   window.vts.on('overlay:changed', next => {
+    if(overlayMode && next.visible && document.querySelector('[data-overlay-tab=players]').classList.contains('active'))refreshRoster(true,true);
     if (overlayMode) {
       text('overlay-input-mode',next.interactive?'Interactive':'Click-through');
     }
@@ -631,7 +603,7 @@ async function start() {
     fillSettings();
     renderAll();
     localConnected=current.clientConnected;clientControls();
-    loadCatalog();
+    loadCatalog();loadRankCatalog();
   } catch (error) {
     if (!overlayMode) showToast('Cannot initialize app: ' + error.message, true);
   }
