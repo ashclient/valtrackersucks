@@ -104,7 +104,7 @@ function createMain() {
 }
 function createOverlay() {
   overlayWindow = new BrowserWindow({
-    width: 360, height: 390, x: 48, y: 48,
+    width: 360, height: 426, x: 48, y: 48,
     frame: false, show: false, transparent: true, resizable: false,
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false, backgroundColor: '#00000000',
     webPreferences: {
