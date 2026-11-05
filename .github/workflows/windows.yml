@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -28,6 +32,10 @@ jobs:
           node --check electron/preload.cjs
           node --check src/renderer.js
           node --check src/analytics.cjs
+          node --check electron/catalog.cjs
+          node --check electron/local-data.cjs
+          node --check server/rso-server.cjs
+          node --check scripts/generate-icons.cjs
       - name: Package Windows application
         run: npm run dist:win
         env:
