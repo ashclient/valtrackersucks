@@ -1,0 +1,314 @@
+'use strict';
+
+const AGENTS = [
+  'Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock',
+  'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon',
+  'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo',
+  'Viper', 'Vyse', 'Waylay', 'Yoru'
+];
+const titles = {
+  overview: 'Overview', career: 'My career', matches: 'Match history',
+  agents: 'Agent presets', leaderboard: 'Leaderboard', settings: 'Settings'
+};
+const overlayMode = new URLSearchParams(location.search).get('mode') === 'overlay';
+document.body.classList.toggle('is-overlay', overlayMode);
+let current = null;
+let activePage = 'overview';
+let toastTimeout = null;
+
+const $ = id => document.getElementById(id);
+const node = (tag, className, text) => {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text !== undefined && text !== null) e.textContent = String(text);
+  return e;
+};
+function empty(parent) { parent.replaceChildren(); }
+function text(id, value) { const e = $(id); if (e) e.textContent = String(value); }
+function metric(value, suffix) {
+  return value === null || value === undefined || !Number.isFinite(Number(value)) ? '—' : String(value) + (suffix || '');
+}
+function shortDate(timestamp) {
+  const date = new Date(timestamp);
+  return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Unknown date';
+}
+function showToast(message, error) {
+  if (overlayMode) return;
+  const toast = $('toast');
+  toast.textContent = String(message);
+  toast.classList.remove('hidden');
+  toast.classList.toggle('error', !!error);
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.add('hidden'), 4500);
+}
+function showPage(page) {
+  if (overlayMode || !titles[page]) return;
+  activePage = page;
+  document.querySelectorAll('.view').forEach(e => e.classList.toggle('active', e.dataset.view === page));
+  document.querySelectorAll('.nav-btn').forEach(e => e.classList.toggle('active', e.dataset.viewTarget === page));
+  text('breadcrumb', titles[page]);
+  document.querySelector('.content-scroll').scrollTop = 0;
+}
+function renderMatch(parent, match) {
+  const row = node('div', 'match-row');
+  const result = match.result === 'WIN' ? 'win' : match.result === 'LOSS' ? 'loss' : 'unknown';
+  row.appendChild(node('div', 'result-stroke ' + result));
+  row.appendChild(node('div', 'map-icon', (match.map || '?').charAt(0).toUpperCase()));
+  const details = node('div', 'match-details');
+  details.appendChild(node('strong', '', match.map || 'Unknown map'));
+  details.appendChild(node('small', '', String(match.queue || 'Unknown').toUpperCase() + ' · ' + shortDate(match.timestamp)));
+  row.appendChild(details);
+  const score = node('div', 'match-score');
+  score.appendChild(node('strong', result === 'win' ? 'win-text' : result === 'loss' ? 'loss-text' : '', match.result));
+  score.appendChild(node('small', '', match.kills + ' / ' + match.deaths + ' / ' + match.assists + ' KDA'));
+  row.appendChild(score);
+  parent.appendChild(row);
+}
+function renderMatches() {
+  const matches = current.matches;
+  const recent = $('overview-matches');
+  const all = $('all-matches');
+  empty(recent); empty(all);
+  if (!matches.length) {
+    recent.appendChild(node('div', 'empty-inline', 'No matches imported yet. Add official match JSON to start tracking your performance.'));
+    all.appendChild(node('div', 'empty-state', 'Your private match history will appear here after you import your own games.'));
+  } else {
+    matches.slice(0, 4).forEach(m => renderMatch(recent, m));
+    matches.forEach(m => renderMatch(all, m));
+  }
+  text('match-counter', current.matchCount + ' imported ' + (current.matchCount === 1 ? 'match' : 'matches'));
+}
+function favoriteRow(name, position) {
+  const row = node('div', 'favorite-row');
+  row.appendChild(node('div', 'favorite-number', String(position).padStart(2, '0')));
+  row.appendChild(node('div', 'favorite-bubble', (name || '?').slice(0, 1)));
+  const details = node('div');
+  details.appendChild(node('div', 'favorite-name', name));
+  details.appendChild(node('span', 'favorite-hint', position === 1 ? 'Primary pick' : position === 2 ? 'Backup pick' : 'Flex option'));
+  row.appendChild(details);
+  return row;
+}
+function renderFavorites() {
+  const favorites = current.settings.favorites || [];
+  const parent = $('overview-favorites');
+  empty(parent);
+  if (!favorites.length) parent.appendChild(node('div', 'empty-inline', 'Choose up to three agents from Agent presets.'));
+  else favorites.forEach((agent, i) => parent.appendChild(favoriteRow(agent, i + 1)));
+  const slots = $('agent-picks');
+  empty(slots);
+  for (let i = 0; i < 3; i++) {
+    const agent = favorites[i];
+    const card = node('div', 'priority-card' + (agent ? '' : ' empty'));
+    card.appendChild(node('div', 'priority-number', 'PRIORITY ' + String(i + 1).padStart(2, '0')));
+    card.appendChild(node('strong', '', agent || 'Empty slot'));
+    card.appendChild(node('small', '', agent ? ['Your first choice', 'If your first is taken', 'Your alternate'][i] : 'Select an agent below'));
+    slots.appendChild(card);
+  }
+  text('agent-count', favorites.length + ' / 3 SELECTED');
+  const grid = $('agent-grid');
+  empty(grid);
+  AGENTS.forEach(agent => {
+    const selected = favorites.includes(agent);
+    const tile = node('button', 'agent-tile' + (selected ? ' selected' : ''));
+    tile.type = 'button';
+    tile.setAttribute('aria-pressed', String(selected));
+    tile.appendChild(node('span', 'agent-initial', agent.slice(0, 1)));
+    if (selected) tile.appendChild(node('span', 'agent-check', '✓ PICK ' + (favorites.indexOf(agent) + 1)));
+    tile.appendChild(node('span', '', agent));
+    tile.addEventListener('click', () => toggleAgent(agent));
+    grid.appendChild(tile);
+  });
+  const overlay = $('overlay-picks');
+  empty(overlay);
+  for (let i = 0; i < 3; i++) {
+    const name = favorites[i];
+    const row = node('div', 'overlay-pick');
+    row.appendChild(node('span', 'overlay-pick-num', String(i + 1).padStart(2, '0')));
+    row.appendChild(node('span', 'overlay-pick-avatar', name ? name.charAt(0) : '—'));
+    const content = node('div');
+    content.appendChild(node('div', 'overlay-pick-name', name || 'No agent selected'));
+    content.appendChild(node('small', '', ['PRIMARY', 'BACKUP', 'FLEX'][i]));
+    row.appendChild(content);
+    overlay.appendChild(row);
+  }
+}
+async function toggleAgent(agent) {
+  const favorites = [...current.settings.favorites];
+  const index = favorites.indexOf(agent);
+  if (index !== -1) favorites.splice(index, 1);
+  else if (favorites.length < 3) favorites.push(agent);
+  else { showToast('You can have three favorite agents. Remove one first.', true); return; }
+  try {
+    current = await window.vts.saveSettings({ ...current.settings, favorites });
+    renderAll();
+  } catch (error) { showToast(error.message, true); }
+}
+function renderMetrics() {
+  const m = current.metrics;
+  text('metric-win', metric(m.winRate, '%'));
+  text('metric-kd', metric(m.kd));
+  text('metric-hs', metric(m.hs, '%'));
+  text('metric-acs', metric(m.acs));
+  text('career-played', m.played);
+  text('career-wins', m.wins);
+  text('career-adr', metric(m.adr));
+  text('career-win', metric(m.winRate, '%'));
+  text('mode-indicator', m.played ? m.played + ' MATCHES ANALYZED' : 'NO MATCHES IMPORTED');
+  text('overview-subtitle', m.played ? 'Your personal trends across ' + m.played + ' imported games.' : 'Your imported matches, summarized.');
+  text('career-name', current.settings.riotId || 'Your profile');
+  text('career-region', 'Region: ' + current.settings.region.toUpperCase() + ' · Local imported history only');
+  text('data-status', m.played ? 'LOCAL DATA READY' : 'LOCAL MODE');
+  text('key-status', current.apiConfigured ? 'Official Riot API key detected in environment' : 'No approved Riot API key configured');
+  $('key-status').classList.toggle('ok', current.apiConfigured);
+  text('overlay-match-count', m.played + ' local ' + (m.played === 1 ? 'match' : 'matches') + ' analyzed');
+}
+function renderMaps() {
+  const parent = $('map-breakdown');
+  empty(parent);
+  if (!current.matches.length) {
+    parent.appendChild(node('div', 'empty-inline', 'Map-specific win rates appear after you import match history.'));
+    return;
+  }
+  const data = new Map();
+  current.matches.forEach(m => {
+    if (m.result !== 'WIN' && m.result !== 'LOSS') return;
+    const entry = data.get(m.map) || { played: 0, won: 0 };
+    entry.played++;
+    if (m.result === 'WIN') entry.won++;
+    data.set(m.map, entry);
+  });
+  if (!data.size) parent.appendChild(node('div', 'empty-inline', 'No decided matches are available.'));
+  [...data.entries()].sort((a, b) => b[1].played - a[1].played).forEach(([name, entry]) => {
+    const percent = Math.round(100 * entry.won / entry.played);
+    const row = node('div', 'map-row');
+    row.appendChild(node('span', 'map-name', name));
+    const track = node('div', 'bar-track');
+    const fill = node('div', 'bar-fill');
+    fill.style.width = percent + '%';
+    track.appendChild(fill);
+    row.appendChild(track);
+    row.appendChild(node('span', 'map-percent', percent + '%'));
+    parent.appendChild(row);
+  });
+}
+function renderAll() {
+  if (!current) return;
+  renderMetrics();
+  renderMatches();
+  renderFavorites();
+  renderMaps();
+}
+async function importMatches() {
+  try {
+    const result = await window.vts.importMatches();
+    if (result.canceled) return;
+    if (result.ok) {
+      showToast('Imported ' + result.count + ' new match summaries.' + (result.errors.length ? ' Some files failed.' : ''));
+      showPage('matches');
+    } else {
+      showToast(result.error || (result.errors || []).join('; ') || 'No matches were imported.', true);
+      if (result.error && result.error.includes('PUUID')) showPage('settings');
+    }
+  } catch (error) { showToast('Import error: ' + error.message, true); }
+}
+async function overlayAction(action) {
+  try {
+    const result = await window.vts.overlay(action);
+    if (!overlayMode) showToast('Overlay ' + (result.visible ? 'visible' : 'hidden') + (result.interactive ? ' · interactive' : ' · click-through'));
+  } catch (error) { showToast(error.message, true); }
+}
+async function loadLeaderboard() {
+  const button = $('load-board');
+  button.disabled = true;
+  text('board-status', 'Loading official data…');
+  $('board-message').classList.remove('hidden');
+  $('board-table').classList.add('hidden');
+  text('board-message', 'Contacting Riot API…');
+  try {
+    const result = await window.vts.leaderboard();
+    if (!result.ok) {
+      text('board-status', 'Unavailable');
+      text('board-message', result.error);
+      return;
+    }
+    text('board-status', result.region.toUpperCase() + ' · ' + result.act);
+    const parent = $('board-rows');
+    empty(parent);
+    result.rows.forEach(player => {
+      const tr = node('tr');
+      [player.rank || '—', player.name, player.rating + ' RR', player.wins].forEach(item => {
+        tr.appendChild(node('td', '', item));
+      });
+      parent.appendChild(tr);
+    });
+    if (result.rows.length) {
+      $('board-message').classList.add('hidden');
+      $('board-table').classList.remove('hidden');
+    } else text('board-message', 'The current act returned no leaderboard players.');
+  } catch (error) {
+    text('board-message', 'Unable to load leaderboard: ' + error.message);
+    text('board-status', 'Unavailable');
+  } finally { button.disabled = false; }
+}
+function fillSettings() {
+  $('setting-riotid').value = current.settings.riotId;
+  $('setting-puuid').value = current.settings.puuid;
+  $('setting-region').value = current.settings.region;
+}
+function bind() {
+  document.querySelectorAll('[data-view-target]').forEach(button => {
+    button.addEventListener('click', () => showPage(button.dataset.viewTarget));
+  });
+  document.querySelectorAll('[data-window-action]').forEach(button => {
+    button.addEventListener('click', () => window.vts.windowAction(button.dataset.windowAction));
+  });
+  ['top-import', 'hero-import', 'matches-import'].forEach(id => $(id).addEventListener('click', importMatches));
+  ['top-overlay', 'hero-overlay', 'settings-overlay'].forEach(id => $(id).addEventListener('click', () => overlayAction('toggle')));
+  $('settings-interaction').addEventListener('click', () => overlayAction('interaction'));
+  $('overlay-close').addEventListener('click', () => overlayAction('hide'));
+  $('load-board').addEventListener('click', loadLeaderboard);
+  $('clear-matches').addEventListener('click', async () => {
+    if (!confirm('Delete every imported match summary stored on this computer?')) return;
+    current = await window.vts.clearMatches();
+    renderAll();
+    showToast('Local match history cleared.');
+  });
+  $('settings-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const next = {
+      ...current.settings,
+      riotId: $('setting-riotid').value.trim(),
+      puuid: $('setting-puuid').value.trim(),
+      region: $('setting-region').value
+    };
+    if (next.puuid !== current.settings.puuid && current.matchCount &&
+        !confirm('Changing your PUUID will clear match history associated with your previous player profile. Continue?')) return;
+    try {
+      current = await window.vts.saveSettings(next);
+      renderAll();
+      showToast('Preferences saved locally.');
+    } catch (error) { showToast('Could not save: ' + error.message, true); }
+  });
+  window.vts.on('state:changed', next => { current = next; renderAll(); });
+  window.vts.on('overlay:changed', next => {
+    if (overlayMode) {
+      const label = document.querySelector('.overlay-shortcut span');
+      label.textContent = next.interactive ? 'CLICKABLE' : 'CLICK-THROUGH';
+    }
+  });
+}
+async function start() {
+  if (!window.vts) {
+    document.body.textContent = 'VTS must be launched with Electron. Run npm start.';
+    return;
+  }
+  bind();
+  try {
+    current = await window.vts.getState();
+    fillSettings();
+    renderAll();
+  } catch (error) {
+    if (!overlayMode) showToast('Cannot initialize app: ' + error.message, true);
+  }
+}
+start();
