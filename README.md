@@ -2,7 +2,7 @@
 
 An independent VALORANT desktop app with a fast dashboard, optional always-on-top overlay, agent planning, match history, map statistics, cosmetic previews, and optional Riot Sign On integration for **consenting players** using an approved production API client.
 
-**Release:** v0.2.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
+**Release:** v0.3.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
 
 ## Install VTS (Windows)
 
