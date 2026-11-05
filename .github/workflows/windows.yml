@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -47,3 +47,20 @@ jobs:
           path: |
             dist/*.exe
           if-no-files-found: error
+
+      - name: Publish Windows preview release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v0.2.0"
+          $artifacts = Get-ChildItem "dist" -Filter "*.exe"
+          if ($artifacts.Count -lt 1) { throw "No Windows installers created" }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag "dist/*.exe" --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag "dist/*.exe" --title "VTS v0.2.0" --notes "Independent VALORANT desktop companion for Windows. Includes local match analytics, agent presets, lightweight overlay, static skin library and optional Riot-approved RSO integration. Unsigned build; Riot live account features require approved credentials." --target $env:GITHUB_SHA --latest --repo $env:GITHUB_REPOSITORY
+          }
+
