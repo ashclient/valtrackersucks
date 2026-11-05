@@ -1,4 +1,4 @@
-/* Shared pure analysis helpers. Never identify or display other players. */
+/* Shared pure analysis helpers. Extract statistics only for the requested participant. */
 'use strict';
 function number(value) {
   var n = Number(value);
@@ -23,6 +23,7 @@ function mapName(mapId) {
   };
   return names[tail] || tail.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
+function playerId(player) { return player && (player.puuid || player.subject); }
 function analyzeMatch(match, ownPuuid) {
   if (!match || typeof match !== 'object' || !Array.isArray(match.players)) {
     throw new Error('This is not an official VALORANT match response.');
@@ -30,13 +31,14 @@ function analyzeMatch(match, ownPuuid) {
   if (!ownPuuid || typeof ownPuuid !== 'string') {
     throw new Error('Enter your own PUUID in Settings before importing matches.');
   }
-  var player = match.players.find(function (p) { return p && p.puuid === ownPuuid; });
+  var player = match.players.find(function (p) { return p && playerId(p) === ownPuuid; });
   if (!player) throw new Error('Your PUUID does not appear in this match.');
   var stats = player.stats || {};
   var rounds = Math.max(1, number(stats.roundsPlayed) || (Array.isArray(match.roundResults) ? match.roundResults.length : 0));
-  var head = 0, body = 0, leg = 0, damage = 0;
+  var head = 0, body = 0, leg = 0, damage = 0, hasDamage = false;
   (Array.isArray(match.roundResults) ? match.roundResults : []).forEach(function (r) {
-    var ps = (r.playerStats || []).find(function (entry) { return entry && entry.puuid === ownPuuid; });
+    var ps = (Array.isArray(r.playerStats) ? r.playerStats : []).find(function (entry) { return entry && playerId(entry) === ownPuuid; });
+    if (ps && Array.isArray(ps.damage)) hasDamage = true;
     (ps && Array.isArray(ps.damage) ? ps.damage : []).forEach(function (hit) {
       head += number(hit.headshots);
       body += number(hit.bodyshots);
@@ -51,14 +53,15 @@ function analyzeMatch(match, ownPuuid) {
     timestamp: number(match.matchInfo && match.matchInfo.gameStartMillis) || Date.now(),
     map: mapName(match.matchInfo && match.matchInfo.mapId),
     agentId: String(player.characterId || ''),
-    queue: String((match.matchInfo && match.matchInfo.queueId) || 'Unknown'),
+    queue: String((match.matchInfo && (match.matchInfo.queueId || match.matchInfo.queueID)) || 'Unknown'),
     result: team && typeof team.won === 'boolean' ? (team.won ? 'WIN' : 'LOSS') : 'UNKNOWN',
     kills: kills, deaths: deaths, assists: assists,
     kd: round(kills / Math.max(1, deaths), 2),
     acs: round(number(stats.score) / rounds, 0),
     adr: damage ? round(damage / rounds, 0) : null,
     hs: head + body + leg ? round((head / (head + body + leg)) * 100, 1) : null,
-    rounds: rounds
+    rounds: rounds,
+    combat: { score: number(stats.score), headshots: head, hits: head + body + leg, damage: damage, hasDamage: hasDamage }
   };
 }
 function summary(matches) {
@@ -76,4 +79,17 @@ function summary(matches) {
     kd: avg('kd'), hs: avg('hs'), adr: avg('adr'), acs: avg('acs')
   };
 }
-module.exports = { analyzeMatch: analyzeMatch, summary: summary, mapName: mapName };
+function aggregateRecent(matches) {
+  var result = summary(matches);
+  if (!matches.length) return result;
+  var kills=0,deaths=0,rounds=0,score=0,heads=0,hits=0,damage=0,damageRounds=0;
+  matches.forEach(function(m){
+    kills+=number(m.kills);deaths+=number(m.deaths);rounds+=number(m.rounds);
+    score+=number(m.combat && m.combat.score);heads+=number(m.combat && m.combat.headshots);hits+=number(m.combat && m.combat.hits);
+    if(m.combat && m.combat.hasDamage){damage+=number(m.combat.damage);damageRounds+=number(m.rounds);}
+  });
+  result.kd=round(kills/Math.max(1,deaths),2);result.acs=rounds?round(score/rounds,0):null;
+  result.hs=hits?round(heads/hits*100,1):null;result.adr=damageRounds?round(damage/damageRounds,0):null;
+  return result;
+}
+module.exports = { playerId: playerId, aggregateRecent: aggregateRecent, analyzeMatch: analyzeMatch, summary: summary, mapName: mapName };

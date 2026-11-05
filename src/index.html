@@ -8,6 +8,7 @@
   <title>VTS — VALORANT companion</title>
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./companion.css">
+  <link rel="stylesheet" href="./match-view.css">
 </head>
 <body>
   <div id="desktop" class="desktop-shell">
@@ -18,9 +19,9 @@
       </div>
       <div class="nav-group-label">PLAY</div>
       <nav id="navigation" aria-label="Main navigation">
-        <button class="nav-btn active" aria-current="page" data-view-target="client" data-client-tab="shop"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3z M8 21h8 M12 17v4"/></svg> Shop</button>
+        <button class="nav-btn" data-view-target="client" data-client-tab="shop"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3z M8 21h8 M12 17v4"/></svg> Shop</button>
         <button class="nav-btn" data-view-target="client" data-client-tab="party"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3z M8 21h8 M12 17v4"/></svg> Party</button>
-        <button class="nav-btn" data-view-target="client" data-client-tab="players"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3z M8 21h8 M12 17v4"/></svg> Live match</button>
+        <button class="nav-btn active" aria-current="page" data-view-target="client" data-client-tab="players"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v12H3z M8 21h8 M12 17v4"/></svg> Live match</button>
         <button class="nav-btn" data-view-target="overview"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9 M12 19V4 M20 19v-7"/></svg> Performance</button>
         <button class="nav-btn" data-view-target="career"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8v6a4 4 0 0 1-8 0z M8 5H4v3a4 4 0 0 0 4 4 M16 5h4v3a4 4 0 0 1-4 4 M12 13v7 M8 21h8"/></svg> Career</button>
         <button class="nav-btn" data-view-target="matches"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h13 M8 12h13 M8 19h13 M3 5h.01 M3 12h.01 M3 19h.01"/></svg> Match history</button>
@@ -38,7 +39,7 @@
 
     <div class="main-shell">
       <header class="topbar drag">
-        <div class="breadcrumbs no-drag">VTS <span>/</span> <strong id="breadcrumb">Shop</strong></div>
+        <div class="breadcrumbs no-drag">VTS <span>/</span> <strong id="breadcrumb">Live match</strong></div>
         <div class="top-actions no-drag">
           <span class="status-pill"><span class="tiny-dot"></span> <span id="data-status">Client offline</span></span>
           <button class="btn btn-secondary btn-small" id="top-overlay">Overlay</button>
@@ -78,15 +79,18 @@
         </section>
 
         <section class="view active" data-view="client">
-          <div class="page-heading heading-with-actions"><div><h1 id="client-page-title">Shop</h1><p id="client-page-description">Your daily offers, without launching the game.</p></div><button class="text-button" data-view-target="settings">Account settings →</button></div>
+          <div class="page-heading heading-with-actions"><div><h1 id="client-page-title">Live match</h1><p id="client-page-description">Your daily offers, without launching the game.</p></div><button class="text-button" data-view-target="settings">Account settings →</button></div>
           <div class="connection-strip"><div class="connection-marker" aria-hidden="true"></div><div class="connection-copy"><strong>Riot Client</strong><small id="client-status" role="status">Not connected. Sign in to Riot Client to get started.</small></div><button class="btn btn-primary" id="client-connect">Connect client</button><button class="btn btn-secondary hidden" id="client-disconnect">Disconnect</button></div>
           <div class="play-grid">
-            <article class="panel shop-panel client-context active" data-client-pane="shop"><div class="panel-head"><div><span class="panel-index">01 / STORE</span><h3 id="shop-section-title">Daily rotation</h3></div><button class="btn btn-secondary btn-small client-control" id="client-shop" disabled>Refresh shop</button></div><div id="shop-wallet" class="wallet-bar" aria-label="Currency balances"></div><nav class="store-tabs" aria-label="Store sections"><button class="active" data-store-tab="offers" aria-pressed="true">Daily offers</button><button data-store-tab="accessories" aria-pressed="false">Accessories</button><button data-store-tab="bundles" aria-pressed="false">Featured</button><button data-store-tab="bonus" aria-pressed="false">Night Market</button></nav><p id="shop-status" class="section-description" role="status">Four offers. No need to launch the game.</p><div id="shop-grid" class="library-grid"><div class="shop-empty"><h4>Your rotation goes here.</h4><p>Connect Riot Client, then refresh to see your offers.</p><span class="empty-footnote">The game can stay closed. Keep Riot Client signed in.</span></div></div></article>
+            <article class="panel shop-panel client-context" data-client-pane="shop"><div class="panel-head"><div><span class="panel-index">01 / STORE</span><h3 id="shop-section-title">Daily rotation</h3></div><button class="btn btn-secondary btn-small client-control" id="client-shop" disabled>Refresh shop</button></div><div id="shop-wallet" class="wallet-bar" aria-label="Currency balances"></div><nav class="store-tabs" aria-label="Store sections"><button class="active" data-store-tab="offers" aria-pressed="true">Daily offers</button><button data-store-tab="accessories" aria-pressed="false">Accessories</button><button data-store-tab="bundles" aria-pressed="false">Featured</button><button data-store-tab="bonus" aria-pressed="false">Night Market</button></nav><p id="shop-status" class="section-description" role="status">Four offers. No need to launch the game.</p><div id="shop-grid" class="library-grid"><div class="shop-empty"><h4>Your rotation goes here.</h4><p>Connect Riot Client, then refresh to see your offers.</p><span class="empty-footnote">The game can stay closed. Keep Riot Client signed in.</span></div></div></article>
             <div class="play-controls client-context" data-client-pane="party">
               <article class="panel lobby-panel"><div class="panel-head"><div><h3>Lobby <span class="inline-caption">Leader controls</span></h3></div><button class="text-button client-control" id="client-lobby" disabled>Refresh</button></div><p id="lobby-status" class="section-description" role="status">Launch VALORANT to use party controls.</p><div class="ready-controls"><button class="btn btn-secondary client-control" data-client-action="ready" disabled>Ready</button><button class="btn btn-secondary client-control" data-client-action="unready" disabled>Unready</button></div><div class="queue-controls"><button class="btn btn-primary client-control" data-client-action="queue" title="Start matchmaking as party leader" disabled>Start queue</button><button class="btn btn-secondary client-control" data-client-action="dequeue" title="Cancel matchmaking as party leader" disabled>Cancel</button></div></article>
               <article class="panel pick-panel"><div class="panel-head"><div><h3>Agent select</h3></div></div><select id="client-agent" aria-label="Agent to select"><option value="">Loading agents…</option></select><div class="ready-controls"><button class="btn btn-secondary client-control" data-client-action="select" disabled>Select</button><button class="btn btn-secondary lock-button client-control" data-client-action="lock" disabled>Lock agent</button></div><p class="control-note">Agent select only. Locking is final.</p></article>
             </div>
-            <article class="panel players-panel client-context" data-client-pane="players"><div class="panel-head"><div><span class="panel-index">04 / IN MATCH</span><h3>Players</h3></div><button class="btn btn-secondary btn-small client-control" id="client-players" disabled>Refresh players</button></div><p id="players-status" class="section-description" role="status">Latest recorded ranks. Available once the match starts.</p><div class="table-wrap"><table class="ranking-table"><thead><tr><th>PLAYER</th><th>RANK / RR</th><th>K/D</th><th>ACS</th><th>WIN %</th><th></th></tr></thead><tbody id="client-player-rows"><tr class="table-empty"><td colspan="6">No active match loaded.</td></tr></tbody></table></div></article>
+            <article class="match-workspace client-context active" data-client-pane="players">
+              <header class="match-toolbar"><div><span id="match-phase" class="phase-pill">WAITING FOR CLIENT</span><strong id="match-map">Waiting for map</strong><small id="match-queue"></small></div><div class="match-actions"><span id="match-auto-status">Auto update ready</span><button id="client-players" class="text-button client-control" disabled>Refresh</button><button id="match-diagnostics" class="text-button">Diagnostics</button></div></header>
+              <div class="match-content"><aside id="match-profile" class="match-profile"></aside><section class="match-board"><header class="match-board-tabs"><strong>Player stats</strong><span>Ranks · Recent form · Parties</span><small>Riot Client data</small></header><div id="desktop-match-table" class="match-table-wrap"></div></section></div><p id="players-status" class="match-notice" role="status">Party and match stats load automatically.</p>
+            </article>
           </div>
           <details class="integration-details"><summary>About the client connection</summary><p>VTS uses unofficial Riot endpoints for your signed-in account. Choose your account region in Settings. Your session stays in memory until you disconnect or exit. Riot updates may interrupt access. Hidden player identities are not looked up.</p></details>
         </section>
@@ -169,6 +173,7 @@
                 <label for="setting-region">Region</label>
                 <select id="setting-region"><option value="na">North America</option><option value="eu">Europe</option><option value="ap">Asia Pacific</option><option value="kr">Korea</option><option value="br">Brazil</option><option value="latam">Latin America</option></select>
                 <div class="settings-options">
+                  <label class="toggle-row" for="setting-auto-connect"><span><strong>Connect automatically</strong><small>Connect to your signed-in Riot Client when VTS starts</small></span><input id="setting-auto-connect" type="checkbox"></label>
                   <label class="toggle-row" for="setting-startup"><span><strong>Launch with Windows</strong><small>Start VTS when you sign in to Windows</small></span><input id="setting-startup" type="checkbox"></label>
                   <label class="toggle-row" for="setting-tray"><span><strong>Minimize to system tray</strong><small>Minimize or close the app to keep it running in the tray</small></span><input id="setting-tray" type="checkbox"></label>
                   <label class="toggle-row overlay-opacity" for="setting-opacity"><span><strong>Overlay opacity</strong><small id="opacity-label">98%</small></span><input id="setting-opacity" type="range" min="65" max="100" step="1" value="98"></label>
@@ -218,14 +223,15 @@
   <section id="overlay" class="overlay-root" aria-label="VTS in-game overlay">
     <div class="overlay-frame">
       <header class="overlay-header drag"><div class="overlay-brand"><b>VTS</b><span class="overlay-tag">IN GAME</span></div><div class="overlay-window-actions no-drag"><button id="overlay-desktop" title="Open desktop app">Open app</button><button id="overlay-close" title="Hide overlay" aria-label="Hide overlay">×</button></div></header>
-      <div id="overlay-quick-stats" class="overlay-quick-stats" aria-label="Your saved performance"></div><nav class="overlay-tabs" aria-label="Overlay view"><button class="active" data-overlay-tab="picks" aria-pressed="true">Agent picks</button><button data-overlay-tab="players" aria-pressed="false">Match players</button></nav>
+      <div id="overlay-quick-stats" class="overlay-quick-stats" aria-label="Your saved performance"></div><nav class="overlay-tabs" aria-label="Overlay view"><button data-overlay-tab="picks" aria-pressed="false">Agent picks</button><button class="active" data-overlay-tab="players" aria-pressed="true">Match players</button></nav>
       <div id="overlay-feedback" class="overlay-feedback" role="status">Your preferred agents, in priority order.</div>
-      <section data-overlay-pane="picks" class="overlay-pane active"><div id="overlay-picks" class="overlay-picks"></div><p class="overlay-helper">Select and lock are available during agent select when the client is connected.</p></section>
-      <section data-overlay-pane="players" class="overlay-pane"><div class="overlay-player-heading"><span>LIVE ROSTER <small>Recent competitive form</small></span><button id="overlay-refresh-players" class="btn btn-secondary btn-small">Refresh</button></div><div id="overlay-players" class="overlay-players"><p class="overlay-helper">Connect Riot Client in the app, then load players after your match starts.</p></div></section>
+      <section data-overlay-pane="picks" class="overlay-pane"><div id="overlay-picks" class="overlay-picks"></div><p class="overlay-helper">Select and lock are available during agent select when the client is connected.</p></section>
+      <section data-overlay-pane="players" class="overlay-pane active"><div class="overlay-player-heading"><span>LIVE ROSTER <small>Recent competitive form</small></span><button id="overlay-refresh-players" class="btn btn-secondary btn-small">Refresh</button></div><div id="overlay-players" class="overlay-players"><p class="overlay-helper">Connect Riot Client in the app, then load players after your match starts.</p></div></section>
       <section id="overlay-report" class="overlay-report hidden" aria-label="Player report"><header><h3 id="overlay-report-name">Player</h3><button id="overlay-report-close" class="btn btn-secondary btn-small">Back to match</button></header><div id="overlay-report-body"></div></section><footer class="overlay-bottom"><div class="overlay-information" id="overlay-match-count">0 local matches analyzed</div><div class="overlay-key-row"><kbd id="overlay-show-key">Ctrl + Shift + V</kbd><span>Show / hide</span></div><div class="overlay-key-row"><kbd id="overlay-interact-key">Ctrl + Shift + I</kbd><span id="overlay-input-mode">Click-through</span></div></footer>
     </div>
   </section>
   <script src="./companion.js" defer></script>
+  <script src="./match-view.js" defer></script>
   <script src="./renderer.js" defer></script>
 </body>
 </html>

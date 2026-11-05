@@ -48,6 +48,7 @@ function sanitizeMap(entry) {
   return {
     id: clean(entry.uuid, 80),
     name: clean(entry.displayName, 50),
+    path: clean(entry.mapUrl, 200),
     callouts: Array.isArray(entry.callouts) ? entry.callouts.length : 0,
     image: validImage(entry.splash || entry.displayIcon)
   };

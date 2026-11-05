@@ -1,8 +1,12 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
-const channels = new Set(['state:changed', 'overlay:changed', 'locker:changed', 'client:cleared', 'stats:updated']);
+const channels = new Set(['state:changed', 'overlay:changed', 'locker:changed', 'client:cleared', 'stats:updated', 'match:updated', 'match:error']);
 contextBridge.exposeInMainWorld('vts', Object.freeze({
   openTracker: riotId => ipcRenderer.invoke('client:tracker',riotId),
+  rosterState: () => ipcRenderer.invoke('client:roster-state'),
+  refreshRoster: () => ipcRenderer.invoke('client:roster-refresh'),
+  copyDiagnostics: () => ipcRenderer.invoke('client:diagnostics'),
+  syncHistory: confirmProfileChange => ipcRenderer.invoke('client:sync-history',confirmProfileChange),
   clientLocker: () => ipcRenderer.invoke('client:locker'),
   clientEquip: change => ipcRenderer.invoke('client:equip',change),
   clientStats: puuid => ipcRenderer.invoke('client:stats',puuid),

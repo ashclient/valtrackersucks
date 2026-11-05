@@ -1,25 +1,26 @@
-## VTS v0.4.0
+## VTS v0.5.0
 
-### Store and locker
+### Automatic match stats
 
-- Correct daily-price lookup with a fallback to the offer catalog when prices are missing.
-- Separate VP, Radianite and Kingdom Credit balances/prices; missing prices are never displayed as zero.
-- Accessory shop, featured bundles and Night Market sections with reset timers and discounted/original prices where supplied by Riot.
-- An owned-item Locker for weapon skins, unlocked levels/variants, player cards, titles, sprays and buddy copies.
-- Equip controls validate ownership against fresh entitlements, reload the current loadout, and preserve other slots and privacy settings. VTS does not purchase items.
+- Fixed Riot Client match parsing: internal responses use `subject` and `queueID`, unlike the official API. The previous parser discarded valid games.
+- Sync Riot matches now uses your connected local client without asking for optional RSO sign-in.
+- VTS automatically connects to the signed-in Windows Riot Client and updates the roster every five seconds. This is configurable in Settings; Disconnect disables reconnection.
+- Party stats load in the lobby, allies during agent select, and enemies as soon as Riot publishes the loading/match roster. No player click is needed.
+- Both windows show recent competitive K/D, win rate, ACS, headshots, ADR, sample size, rank and reported peak. The desktop also shows the selected agent's recent sample.
+- Confirmed current parties share P# badges; hover to see who is grouped. Past-party evidence is labeled separately and does not assert current membership.
+- Displays Riot IDs returned by your session's name service, including masked handles if returned. Withheld names and rejected histories remain unavailable.
+- Background loading is bounded and cached; stale results are discarded on phase/account changes. Endpoint diagnostics copy HTTP statuses without credentials or player IDs.
 
 ### Desktop and overlay
 
-- Artwork-led store cards, item inspection, weapon-slot navigation and a searchable locker.
-- Team-based overlay roster with agent portraits, rank badges and player reports.
-- Recent competitive reports include K/D, average ACS, HS% and win rate over up to 10 games. Data comes from the Riot Client session and is cached for five minutes.
-- Visible player reports can open their Tracker.gg profile. This is not a Tracker.gg API or scraping integration.
-- Private/unavailable histories fail clearly. Hidden identities are not resolved.
-- Reconnecting/disconnecting clears account-specific store, locker and report data.
+- Rebuilt the default Live match screen around the published Tracker profile-and-table composition, with original VTS code and branding.
+- Dense ally/enemy rows, grouped stat columns, rank badges, agent art, own-player highlighting and team averages replace click-to-load reports.
+- Wider separate overlay opens directly to the match table; tray and configurable global shortcuts remain available.
+- Shop, accessories, bundles, Night Market and owned-item locker remain available.
 
-### Downloads
+### Downloads and validation
 
-- **VTS.Setup.0.4.0.exe** — Windows x64 installer.
-- **VTS.0.4.0.exe** — Windows x64 portable executable.
+- **VTS.Setup.0.5.0.exe** — Windows x64 installer.
+- **VTS.0.5.0.exe** — Windows x64 portable.
 
-The builds are unsigned. Unofficial Riot endpoints can change. Live authenticated store/loadout behavior and display over a running VALORANT game require Windows validation; Electron tests using synthetic inventories do not establish that compatibility. Borderless Windowed mode remains the overlay target.
+57 tests cover parsing, phase changes, background loading, parties and existing store/locker behavior. The parser includes an anonymized published response fixture. Electron layout and hotkeys were checked on Linux. Live authenticated Riot requests and display over VALORANT still require Windows account validation. Future opponents cannot be shown before Riot assigns and supplies their roster. These are recent Riot Client samples, not lifetime Tracker scores or a Tracker.gg API integration. Builds are unsigned; Borderless Windowed is the overlay target.

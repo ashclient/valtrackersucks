@@ -16,7 +16,7 @@ const overlayMode = new URLSearchParams(location.search).get('mode') === 'overla
 document.body.classList.toggle('is-overlay', overlayMode);
 let current = null;
 let activePage = 'client';
-let clientTab='shop';
+let clientTab='players';
 let toastTimeout = null;
 let agentCatalog = [];
 let weaponCatalog = [];
@@ -61,6 +61,8 @@ function showToast(message, error) {
 function showPage(page) {
   if (overlayMode || !titles[page]) return;
   activePage = page;
+  if(page==='settings'&&current)fillSettings();
+  document.body.classList.toggle('is-live-view',page==='client'&&clientTab==='players');
   document.querySelectorAll('.view').forEach(e => e.classList.toggle('active', e.dataset.view === page));
   document.querySelectorAll('.nav-btn').forEach(e => {
     const selected=e.dataset.viewTarget===page&&(!e.dataset.clientTab||e.dataset.clientTab===clientTab);
@@ -221,7 +223,7 @@ function renderMetrics() {
     'The app needs an approved Riot RSO client and secure backend. No login credentials are bundled.'));
   $('riot-connect').classList.toggle('hidden', !!current.linkedAccount);
   $('riot-disconnect').classList.toggle('hidden', !current.linkedAccount);
-  text('matches-riot-sync', current.linkedAccount ? 'Sync Riot matches' : 'Sync Riot (sign in)');
+  text('matches-riot-sync', current.clientConnected?'Sync recent matches':current.linkedAccount?'Sync Riot matches':'Connect Riot Client');
   text('version-text', 'VTS ' + (current.version || 'developer preview'));
   text('folder-path', current.settings.syncFolder || 'No folder selected');
   $('key-status').classList.toggle('ok', current.apiConfigured);
@@ -328,6 +330,7 @@ function fillSettings() {
   $('setting-riotid').value = current.settings.riotId;
   $('setting-puuid').value = current.settings.puuid;
   $('setting-region').value = current.settings.region;
+  $('setting-auto-connect').checked=current.settings.autoConnect!==false;
   $('setting-startup').checked = current.settings.launchAtLogin === true;
   $('setting-tray').checked = current.settings.minimizeToTray !== false;
   $('setting-opacity').value = Math.round((current.settings.overlayOpacity || 0.98) * 100);
@@ -397,9 +400,7 @@ function shopEmpty(title='Your rotation goes here.', message='Connect Riot Clien
   box.appendChild(node('span','empty-footnote','The game can stay closed. Keep Riot Client signed in.'));
   $('shop-grid').replaceChildren(box);
 }
-function playersEmpty(message='No active match loaded.') {
-  const row=node('tr','table-empty');const cell=node('td','',message);cell.colSpan=6;row.appendChild(cell);$('client-player-rows').replaceChildren(row);
-}
+function playersEmpty(){if(typeof renderMatchTables==='function')renderMatchTables();}
 function clientControls() {
   document.querySelectorAll('.client-control').forEach(button=>button.disabled=!localConnected || localBusy || (['select','lock'].includes(button.dataset.clientAction)&&!agentCatalog.length));
   $('client-agent').disabled=!localConnected || localBusy || !agentCatalog.length;
@@ -543,9 +544,13 @@ function bind() {
     } catch(error) {showToast(error.message,true);}
   });
   $('matches-riot-sync').addEventListener('click', async () => {
-    if (!current.linkedAccount) {
-      showPage('settings');showToast('Connect a Riot account first.',true);return;
+    if(current.clientConnected){
+      try{let result=await window.vts.syncHistory();
+        if(result.needsProfileSwitch){if(!confirm('Switch history to the signed-in Riot account? This clears the previous profile history.'))return;result=await window.vts.syncHistory(true);}
+        if(!result.ok)throw Error(result.error);showToast('Synced '+result.count+' recent matches.');
+      }catch(error){showToast(error.message,true);}return;
     }
+    if (!current.linkedAccount) {showPage('client');showToast('Start and sign in to Riot Client. VTS can connect automatically.',true);return;}
     const button = $('matches-riot-sync');
     button.disabled=true;button.textContent='Syncing matches…';
     try {
@@ -570,6 +575,7 @@ function bind() {
       riotId: $('setting-riotid').value.trim(),
       puuid: $('setting-puuid').value.trim(),
       region: $('setting-region').value,
+      autoConnect: $('setting-auto-connect').checked,
       launchAtLogin: $('setting-startup').checked,
       minimizeToTray: $('setting-tray').checked,
       overlayOpacity: Number($('setting-opacity').value) / 100
@@ -602,7 +608,7 @@ async function start() {
     current = await window.vts.getState();
     fillSettings();
     renderAll();
-    localConnected=current.clientConnected;clientControls();
+    localConnected=current.clientConnected;clientControls();showPage('client');if(current.match)applyMatchSnapshot(current.match);
     loadCatalog();loadRankCatalog();
   } catch (error) {
     if (!overlayMode) showToast('Cannot initialize app: ' + error.message, true);

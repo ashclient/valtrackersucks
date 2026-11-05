@@ -31,6 +31,8 @@ jobs:
           node --check electron/store.cjs
           node --check electron/presentation.cjs
           node --check src/companion.js
+          node --check electron/match-monitor.cjs
+          node --check src/match-view.js
           node --check electron/client.cjs
           node --check electron/shortcuts.cjs
           node --check electron/main.cjs

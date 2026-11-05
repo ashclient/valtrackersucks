@@ -9,8 +9,6 @@ let lockerWeapon=null;
 let inspectedItem=null;
 let ownStatsSnapshot=null;
 let rosterSnapshot=[];
-let rosterBusy=false;
-let rosterNextPoll=0;
 let rankArtwork=new Map();
 let reportGeneration=0;
 const playerStatsCache=new Map();
@@ -30,6 +28,7 @@ function collectionEmpty(parent,title,description){
 }
 function clearCompanion(){
   reportGeneration++;shopSnapshot=null;storeError='';lockerSnapshot=null;ownStatsSnapshot=null;rosterSnapshot=[];inspectedItem=null;playerStatsCache.clear();
+  if(typeof clearMatchView==='function')clearMatchView();
   shopEmpty();text('shop-status','Connect Riot Client to load your store.');
   empty($('shop-wallet'));playersEmpty();
   collectionEmpty($('locker-items'),'Your collection, ready to equip.','Connect Riot Client, then load the items you own.');
@@ -37,7 +36,7 @@ function clearCompanion(){
   text('locker-status','Connect Riot Client to load your inventory.');
   if($('player-detail').open)$('player-detail').close();
   $('overlay-report').classList.add('hidden');
-  collectionEmpty($('overlay-players'),'No player data loaded','Connect Riot Client in the app to load your active match.');
+  renderMatchTables();
 }
 async function loadRankCatalog(){
   try{const result=await window.vts.catalog('ranks');if(!result.ok)return;
@@ -149,47 +148,10 @@ function rankCell(player){
   const icon=metadata&&imageElement(metadata.image,metadata.name,'rank-icon');if(icon)block.appendChild(icon);
   block.appendChild(node('span','',rankText(player.rank)));return block;
 }
-function renderRoster(){
-  const tbody=$('client-player-rows');empty(tbody);const overlay=$('overlay-players');empty(overlay);
-  const teams=['Your team','Opponent'];
-  for(const team of teams){
-    const group=node('section','roster-team');group.appendChild(node('h3','',team==='Your team'?'YOUR TEAM':'OPPONENTS'));
-    const members=rosterSnapshot.filter(player=>player.team===team);
-    for(const player of members){
-      const stats=playerStatsCache.get(player.puuid)?.metrics;
-      const row=node('tr','roster-row');row.dataset.team=team;
-      const identity=node('td','player-identity');const agent=agentCatalog.find(a=>a.id===player.agentId);
-      const image=agent&&imageElement(agent.portrait || agent.icon,agent.name,'roster-avatar');if(image)identity.appendChild(image);
-      const name=node('div');name.appendChild(node('strong','',player.name));name.appendChild(node('small','',agent?.name || team));identity.appendChild(name);row.appendChild(identity);
-      const rank=node('td');rank.appendChild(rankCell(player));row.appendChild(rank);
-      for(const value of [metric(stats?.kd),metric(stats?.acs),metric(stats?.winRate,'%')])row.appendChild(node('td','numeric-cell',value));
-      const action=node('td');if(player.puuid){const button=node('button','text-button','Report →');button.addEventListener('click',()=>loadPlayerReport(player,false));action.appendChild(button);}else action.appendChild(node('small','muted','Private'));
-      row.appendChild(action);tbody.appendChild(row);
-      const tile=node('button','overlay-roster-row');tile.type='button';tile.disabled=!player.puuid;
-      const agentArt=agent&&imageElement(agent.portrait || agent.icon,agent.name,'roster-avatar');if(agentArt)tile.appendChild(agentArt);
-      const labels=node('div','roster-player-name');labels.appendChild(node('strong','',player.name));labels.appendChild(node('small','',rankText(player.rank)));tile.appendChild(labels);
-      const detail=node('span','roster-player-form',stats?metric(stats.kd)+' K/D · '+metric(stats.winRate,'%'):'View stats');tile.appendChild(detail);
-      const badge=rankArtwork.get(player.rank?.tier);const rankArt=badge&&imageElement(badge.image,badge.name,'rank-icon');if(rankArt)tile.appendChild(rankArt);
-      tile.addEventListener('click',()=>loadPlayerReport(player,true));group.appendChild(tile);
-    }
-    if(members.length)overlay.appendChild(group);
-  }
-  if(!rosterSnapshot.length){playersEmpty();collectionEmpty(overlay,'No players returned','Refresh after your match starts.');}
-}
+function renderRoster(){renderMatchTables();}
 async function refreshRoster(inOverlay=false,silent=false){
-  if(rosterBusy || silent&&Date.now()<rosterNextPoll)return {ok:true};
-  rosterBusy=true;rosterNextPoll=Date.now()+30000;
-  const button=$(inOverlay?'overlay-refresh-players':'client-players');button.disabled=true;
-  text(inOverlay?'overlay-feedback':'players-status','Loading current match…');
-  try{
-    const result=await window.vts.clientPlayers();if(!result.ok)throw Error(result.error);
-    rosterSnapshot=result.players;renderRoster();
-    text(inOverlay?'overlay-feedback':'players-status','Latest ranks · Select a player for recent K/D, ACS, HS% and win rate.');return result;
-  }catch(error){
-    rosterNextPoll=Date.now()+60000;text(inOverlay?'overlay-feedback':'players-status',error.message);
-    if(!rosterSnapshot.length)collectionEmpty($('overlay-players'),'No active match',error.message);
-    return {ok:false,error:error.message};
-  }finally{rosterBusy=false;button.disabled=!current?.clientConnected;}
+  if(silent)return {ok:true};
+  await window.vts.refreshRoster();const result=await window.vts.rosterState();if(result.snapshot)applyMatchSnapshot(result.snapshot);return {ok:true};
 }
 function reportBody(parent,stats){
   empty(parent);parent.appendChild(node('p','report-source',stats.source+' · '+stats.metrics.played+' matches'+(stats.cached?' · Cached for up to 5 minutes':'')));
@@ -229,6 +191,7 @@ function renderOverlayMetrics(){
   parent.title=ownStatsSnapshot?'Recent competitive matches from Riot Client':'Saved local match summaries';
 }
 function bindCompanion(){
+  bindMatchView();
   document.querySelectorAll('[data-store-tab]').forEach(button=>button.addEventListener('click',()=>{storeTab=button.dataset.storeTab;document.querySelectorAll('[data-store-tab]').forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});renderStore();}));
   document.querySelectorAll('[data-locker-tab]').forEach(button=>button.addEventListener('click',()=>{lockerTab=button.dataset.lockerTab;inspectedItem=null;document.querySelectorAll('[data-locker-tab]').forEach(b=>{const active=b===button;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});renderLocker();}));
   $('locker-search').addEventListener('input',renderLocker);
@@ -245,7 +208,6 @@ function bindCompanion(){
   window.vts.on('stats:updated',value=>{if(value.isOwn){ownStatsSnapshot=value.stats;renderOwnStats();}else if(value.puuid)playerStatsCache.set(value.puuid,value.stats);if(rosterSnapshot.length)renderRoster();});
   setInterval(()=>{
     if(shopSnapshot&&activePage==='client'&&clientTab==='shop')renderStoreCountdown();
-    if(overlayMode&&current?.overlay.visible&&current?.clientConnected&&document.querySelector('[data-overlay-tab=players]').classList.contains('active'))refreshRoster(true,true);
   },1000);
 }
 function renderStoreCountdown(){

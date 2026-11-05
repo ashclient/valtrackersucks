@@ -1,12 +1,13 @@
 'use strict';
 
-const { net, app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage } = require('electron');
+const { net, app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage, clipboard } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { analyzeMatch, summary } = require('../src/analytics.cjs');
 const { importFiles, scanFolder, exportCSV, mergeMatches } = require('./local-data.cjs');
 const { getCatalog } = require('./catalog.cjs');
 const { enrichStore, presentLocker } = require('./presentation.cjs');
+const { MatchMonitor } = require('./match-monitor.cjs');
 const { RiotClient } = require('./client.cjs');
 const { DEFAULT_KEYS, normalizeKey, Shortcuts } = require('./shortcuts.cjs');
 const shortcuts = new Shortcuts(globalShortcut,{overlay:toggleOverlay,interaction:toggleInteractive});
@@ -15,6 +16,8 @@ if (!primaryInstance) app.quit();
 app.on('second-instance', () => showMain());
 const client = new RiotClient({fetchJSON:(...args)=>net.fetch(...args)});
 let clientBusy = false;
+let matchMonitor=null;
+let autoConnectTimer=null;
 async function clientOperation(operation) {
   if (clientBusy) return {ok:false,error:'A client request is already running.'};
   clientBusy=true;
@@ -27,7 +30,7 @@ const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
 const AGENTS = new Set(['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Viper', 'Vyse', 'Waylay', 'Yoru']);
 const DEFAULTS = Object.freeze({
   riotId: '', puuid: '', region: 'na', favorites: ['Jett', 'Omen', 'Sage'],
-  syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98, overlayShortcut: DEFAULT_KEYS.overlay, interactionShortcut: DEFAULT_KEYS.interaction
+  autoConnect: true, syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98, overlayShortcut: DEFAULT_KEYS.overlay, interactionShortcut: DEFAULT_KEYS.interaction
 });
 let mainWindow = null;
 let overlayWindow = null;
@@ -66,6 +69,7 @@ function sanitizeSettings(input) {
     puuid: puuid,
     region: REGIONS.has(region) ? region : 'na',
     favorites: [...new Set(favorites.filter(x => typeof x === 'string' && x.length > 0 && x.length <= 40 && /^[A-Za-z0-9 /'-]+$/.test(x)))].slice(0, 3),
+    autoConnect: value.autoConnect !== false,
     syncFolder: typeof value.syncFolder === 'string' ? value.syncFolder.slice(0, 1200) : '',
     launchAtLogin: value.launchAtLogin === true,
     minimizeToTray: value.minimizeToTray !== false,
@@ -91,6 +95,7 @@ function safeMatches(input) {
 function appState() {
   return {
     desktop: {visible: Boolean(mainWindow && mainWindow.isVisible())},
+    match: matchMonitor?.snapshot || null,
     settings: preferences,
     matches: matches.slice(0, 500),
     metrics: summary(matches),
@@ -148,7 +153,7 @@ function createMain() {
 }
 function createOverlay() {
   overlayWindow = new BrowserWindow({
-    width: 680, height: 600, x: 48, y: 48,
+    width: 1000, height: 720, x: 48, y: 48,
     frame: false, show: false, transparent: true, resizable: false,
     skipTaskbar: true, alwaysOnTop: true, focusable: false, hasShadow: false, backgroundColor: '#00000000',
     webPreferences: {
@@ -425,9 +430,26 @@ async function disconnectRiot() {
 function registerIPC() {
   ipcMain.handle('app:state', () => appState());
   ipcMain.handle('client:connect', () => clientOperation(async()=>{
-    client.disconnect();broadcast('client:cleared',{});notifyChanged();return client.connect(preferences.region);
+    matchMonitor?.stop();client.disconnect();broadcast('client:cleared',{});notifyChanged();
+    const result=await client.connect(preferences.region);matchMonitor?.start();return result;
   }));
-  ipcMain.handle('client:disconnect', () => {client.disconnect();notifyChanged();broadcast('client:cleared',{});return {ok:true};});
+  ipcMain.handle('client:disconnect', () => {matchMonitor?.stop();preferences.autoConnect=false;writeJSON('settings.json',preferences);client.disconnect();notifyChanged();broadcast('client:cleared',{});return {ok:true};});
+  ipcMain.handle('client:roster-state', () => ({ok:true,snapshot:matchMonitor?.snapshot || null}));
+  ipcMain.handle('client:roster-refresh', () => {matchMonitor?.tick();return {ok:true};});
+  ipcMain.handle('client:diagnostics', () => {
+    const report={version:app.getVersion(),connected:Boolean(client.session),region:preferences.region,phase:matchMonitor?.snapshot?.phase || 'unknown',requests:client.diagnostics};
+    clipboard.writeText(JSON.stringify(report,null,2));return {ok:true};
+  });
+  ipcMain.handle('client:sync-history', (_event,confirmProfileChange=false) => clientOperation(async()=>{
+    const s=client.session;if(!s)throw new Error('Connect Riot Client first.');
+    if(preferences.puuid&&preferences.puuid!==s.puuid&&matches.length&&!confirmProfileChange)return {needsProfileSwitch:true};
+    const stats=await client.playerStats(s.puuid);
+    if(client.session!==s)throw new Error('The account connection changed.');
+    if(preferences.puuid&&preferences.puuid!==s.puuid)matches=[];
+    preferences=sanitizeSettings({...preferences,puuid:s.puuid});writeJSON('settings.json',preferences);
+    const old=new Set(matches.map(m=>m.id));matches=safeMatches(mergeMatches(matches,stats.matches));writeJSON('matches.json',matches);notifyChanged();
+    return {count:stats.matches.filter(m=>!old.has(m.id)).length};
+  }));
   ipcMain.handle('client:players', () => clientOperation(async()=>({players:await client.players()})));
   ipcMain.handle('client:lobby', () => clientOperation(async()=>({lobby:await client.lobby()})));
   ipcMain.handle('client:shop', () => clientOperation(async()=>{
@@ -465,7 +487,7 @@ function registerIPC() {
     const next=sanitizeSettings(settings);
     shortcuts.apply({overlay:next.overlayShortcut,interaction:next.interactionShortcut});
     const oldPuuid = preferences.puuid;
-    if (next.region !== preferences.region) client.disconnect();
+    if (next.region !== preferences.region){matchMonitor?.stop();client.disconnect();}
     preferences = next;
     if (oldPuuid && preferences.puuid !== oldPuuid) {
       // Imported summaries belong to the previous account.
@@ -520,10 +542,22 @@ app.whenReady().then(() => {
   preferences = sanitizeSettings(readJSON('settings.json', DEFAULTS));
   linkedSession = loadRiotSession();
   matches = safeMatches(readJSON('matches.json', [])).sort((a, b) => b.timestamp - a.timestamp);
+  matchMonitor=new MatchMonitor(client,{
+    onSnapshot:snapshot=>broadcast('match:updated',snapshot),
+    onError:error=>{broadcast('match:error',{error});if(!client.session){matchMonitor.stop();broadcast('client:cleared',{});notifyChanged();}}
+  });
   registerIPC();
   createMain();
   createOverlay();
   createTray();
+  const autoConnect=async()=>{
+    if(process.platform!=='win32'||!preferences.autoConnect||client.session||clientBusy)return;
+    clientBusy=true;
+    try{await client.connect(preferences.region);matchMonitor.start();notifyChanged();}
+    catch{ /* Riot Client may not be running yet. The next attempt uses its current local session. */ }
+    finally{clientBusy=false;}
+  };
+  autoConnect();autoConnectTimer=setInterval(autoConnect,15000);autoConnectTimer.unref();
   syncInterval = setInterval(() => { try { syncLocalFolder(true); } catch (_) {} }, 60000);
   syncInterval.unref();
   if (preferences.syncFolder) { try { syncLocalFolder(true); } catch (_) {} }
@@ -533,6 +567,8 @@ app.whenReady().then(() => {
 app.on('before-quit', () => { isQuitting = true;client.disconnect(); });
 app.on('will-quit', () => {
   if (syncInterval) clearInterval(syncInterval);
+  if(autoConnectTimer)clearInterval(autoConnectTimer);
+  matchMonitor?.stop();
   globalShortcut.unregisterAll();
 });
 app.on('window-all-closed', () => app.quit());
