@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'">
+  <meta name="color-scheme" content="dark">
+  <title>VTS — VALORANT companion</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="desktop" class="desktop-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><span>V</span></div>
+        <div><strong>VTS<span class="accent">.</span></strong><small>VALORANT COMPANION</small></div>
+      </div>
+      <div class="nav-group-label">WORKSPACE</div>
+      <nav id="navigation" aria-label="Main navigation">
+        <button class="nav-btn active" data-view-target="overview"><span class="nav-symbol">◈</span> Overview</button>
+        <button class="nav-btn" data-view-target="career"><span class="nav-symbol">▣</span> My career</button>
+        <button class="nav-btn" data-view-target="matches"><span class="nav-symbol">≡</span> Match history</button>
+        <button class="nav-btn" data-view-target="agents"><span class="nav-symbol">◇</span> Agent presets</button>
+        <button class="nav-btn" data-view-target="leaderboard"><span class="nav-symbol">▤</span> Leaderboard</button>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="side-bottom">
+        <div class="privacy-note"><span class="tiny-dot"></span> PRIVATE BY DEFAULT <small>Local match data. No game injection.</small></div>
+        <button class="nav-btn" data-view-target="settings"><span class="nav-symbol">⚙</span> Settings</button>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar drag">
+        <div class="breadcrumbs no-drag">VTS <span>/</span> <strong id="breadcrumb">Overview</strong></div>
+        <div class="top-actions no-drag">
+          <span class="status-pill"><span class="tiny-dot"></span> <span id="data-status">LOCAL MODE</span></span>
+          <button class="btn btn-secondary btn-small" id="top-overlay">◱ &nbsp; Overlay</button>
+          <button class="btn btn-primary btn-small" id="top-import">＋ &nbsp; Import match</button>
+          <div class="window-controls">
+            <button title="Minimize" data-window-action="minimize">—</button>
+            <button title="Maximize" data-window-action="maximize">□</button>
+            <button title="Close" data-window-action="close" class="close-button">×</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="content-scroll">
+        <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+        <section class="view active" data-view="overview">
+          <div class="intro">
+            <div>
+              <div class="eyebrow">YOUR PERFORMANCE, WITHOUT THE CLUTTER</div>
+              <h1>Sharper insights.<br><span>Better decisions.</span></h1>
+              <p>Review your matches, plan your agents, and keep the useful information in reach.</p>
+              <div class="intro-actions">
+                <button class="btn btn-primary" id="hero-import">Import your matches <span>↗</span></button>
+                <button class="btn btn-secondary" id="hero-overlay">Open overlay <span>◱</span></button>
+              </div>
+            </div>
+            <div class="hero-decoration" aria-hidden="true"><div class="hero-ring"><span>V</span></div><div class="hero-chip chip-1">ANALYZE</div><div class="hero-chip chip-2">IMPROVE</div></div>
+          </div>
+
+          <div class="section-title-line"><div><h2>Performance snapshot</h2><p id="overview-subtitle">Your imported matches, summarized.</p></div><span class="section-tag" id="mode-indicator">NO MATCHES IMPORTED</span></div>
+          <div class="stats-grid">
+            <div class="stat-card"><div class="stat-label">WIN RATE <span class="stat-glyph">↗</span></div><div class="stat-value" id="metric-win">—</div><div class="stat-sub">Decided matches</div></div>
+            <div class="stat-card"><div class="stat-label">K / D <span class="stat-glyph">◎</span></div><div class="stat-value" id="metric-kd">—</div><div class="stat-sub">Average kill/death ratio</div></div>
+            <div class="stat-card"><div class="stat-label">HEADSHOT % <span class="stat-glyph">⌖</span></div><div class="stat-value" id="metric-hs">—</div><div class="stat-sub">When damage data is present</div></div>
+            <div class="stat-card"><div class="stat-label">AVERAGE COMBAT SCORE <span class="stat-glyph">✳</span></div><div class="stat-value" id="metric-acs">—</div><div class="stat-sub">Per round, per match</div></div>
+          </div>
+
+          <div class="overview-columns">
+            <article class="panel">
+              <div class="panel-head"><div><h3>Recent matches</h3><small>Your post-game history</small></div><button class="text-button" data-view-target="matches">View all ↗</button></div>
+              <div id="overview-matches" class="match-list"></div>
+            </article>
+            <article class="panel agents-panel">
+              <div class="panel-head"><div><h3>Agent priorities</h3><small>Ready for your next agent select</small></div><button class="text-button" data-view-target="agents">Edit ↗</button></div>
+              <div id="overview-favorites" class="favorite-stack"></div>
+              <div class="subtle-box"><span>ⓘ</span> Presets are visual reminders, not automatic agent locks.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" data-view="career">
+          <div class="page-heading"><div class="eyebrow">PLAYER OVERVIEW</div><h1>Your career, <span>at a glance.</span></h1><p>Detailed, private breakdowns calculated from matches you import.</p></div>
+          <div class="profile-panel">
+            <div class="profile-avatar">V</div><div class="profile-content"><div class="profile-kicker">LINKED LOCALLY</div><h2 id="career-name">Your profile</h2><p id="career-region">Region: NA · No live session connected</p></div>
+            <button class="btn btn-secondary" data-view-target="settings">Edit profile</button>
+          </div>
+          <div class="stats-grid career-stats">
+            <div class="stat-card"><div class="stat-label">MATCHES</div><div id="career-played" class="stat-value">0</div><div class="stat-sub">Imported games</div></div>
+            <div class="stat-card"><div class="stat-label">WINS</div><div id="career-wins" class="stat-value">0</div><div class="stat-sub">Recorded victories</div></div>
+            <div class="stat-card"><div class="stat-label">AVERAGE DAMAGE / ROUND</div><div id="career-adr" class="stat-value">—</div><div class="stat-sub">When available</div></div>
+            <div class="stat-card"><div class="stat-label">WIN RATE</div><div id="career-win" class="stat-value">—</div><div class="stat-sub">Completed matches</div></div>
+          </div>
+          <article class="panel">
+            <div class="panel-head"><div><h3>Map breakdown</h3><small>Computed from your imported matches</small></div></div>
+            <div id="map-breakdown" class="map-breakdown"></div>
+          </article>
+        </section>
+
+        <section class="view" data-view="matches">
+          <div class="page-heading">
+            <div class="eyebrow">POST-MATCH ANALYSIS</div><h1>Match <span>history.</span></h1>
+            <p>Import official match JSON and keep up to 500 summaries stored on this device.</p>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><h3>Match log</h3><small id="match-counter">0 imported matches</small></div><div class="inline-buttons"><button class="btn btn-secondary btn-small" id="clear-matches">Clear history</button><button class="btn btn-primary btn-small" id="matches-import">＋ Import JSON</button></div></div>
+            <div id="all-matches" class="match-list full"></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="agents">
+          <div class="page-heading"><div class="eyebrow">PREFERENCES & PREP</div><h1>Agent <span>presets.</span></h1><p>Select your top three picks. They appear in your lightweight in-game overlay as a reminder.</p></div>
+          <div class="panel">
+            <div class="panel-head"><div><h3>Your priority order</h3><small>Up to three agents · choose in order</small></div><span class="section-tag" id="agent-count">0 / 3 SELECTED</span></div>
+            <div id="agent-picks" class="priority-slots"></div>
+          </div>
+          <div class="section-title-line compact"><div><h2>Available agents</h2><p>Click a name to add or remove it from your three priorities.</p></div></div>
+          <div id="agent-grid" class="agent-grid"></div>
+          <div class="policy-line">Agent presets never interact with the VALORANT client or automatically lock selections.</div>
+        </section>
+
+        <section class="view" data-view="leaderboard">
+          <div class="page-heading"><div class="eyebrow">OFFICIAL RANKINGS</div><h1>Competitive <span>leaderboard.</span></h1><p>Read-only rankings from Riot's documented API, with anonymous entries respected.</p></div>
+          <div class="panel">
+            <div class="panel-head"><div><h3>Top players</h3><small id="board-status">No leaderboard loaded</small></div><button class="btn btn-primary btn-small" id="load-board">Refresh leaderboard</button></div>
+            <div id="board-message" class="empty-state">Connect an approved Riot API key to load official leaderboard rankings. Player scouting is not available.</div>
+            <div class="table-wrap"><table id="board-table" class="ranking-table hidden"><thead><tr><th>RANK</th><th>PLAYER</th><th>RATING</th><th>WINS</th></tr></thead><tbody id="board-rows"></tbody></table></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="settings">
+          <div class="page-heading"><div class="eyebrow">PREFERENCES</div><h1>Make it <span>yours.</span></h1><p>Your settings and imported match summaries stay on this computer.</p></div>
+          <div class="settings-grid">
+            <article class="panel"><div class="panel-head"><div><h3>Player profile</h3><small>Used only to match your imported games to you</small></div></div>
+              <form id="settings-form">
+                <label for="setting-riotid">Riot ID (display only)</label>
+                <input id="setting-riotid" maxlength="70" placeholder="Player#NA1" autocomplete="off">
+                <label for="setting-puuid">Your PUUID</label>
+                <input id="setting-puuid" maxlength="128" placeholder="Your player UUID from an authorized source" autocomplete="off" spellcheck="false">
+                <div class="input-hint">Required for importing official match JSON. Never enter your password or access token here.</div>
+                <label for="setting-region">Region</label>
+                <select id="setting-region"><option value="na">North America</option><option value="eu">Europe</option><option value="ap">Asia Pacific</option><option value="kr">Korea</option><option value="br">Brazil</option><option value="latam">Latin America</option></select>
+                <button type="submit" class="btn btn-primary save-button">Save preferences</button>
+              </form>
+            </article>
+            <div class="settings-stack">
+              <article class="panel"><div class="panel-head"><div><h3>Overlay shortcuts</h3><small>Available while VTS is running</small></div></div>
+                <div class="shortcut-row"><span>Show / hide overlay</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>V</kbd></div>
+                <div class="shortcut-row"><span>Interact / click-through</span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>I</kbd></div>
+                <p class="panel-note">Works best with VALORANT in Borderless Windowed mode. Exclusive fullscreen may cover ordinary desktop overlays.</p>
+                <div class="inline-buttons"><button class="btn btn-secondary btn-small" id="settings-overlay">Toggle overlay</button><button class="btn btn-secondary btn-small" id="settings-interaction">Toggle interaction</button></div>
+              </article>
+              <article class="panel"><div class="panel-head"><div><h3>Data source</h3><small>Official API access requirements</small></div></div>
+                <div class="key-status" id="key-status">No approved API key configured</div>
+                <p class="panel-note">Official stats for other players require their opt-in via Riot Sign On. Opponent scouting and identifying hidden players are intentionally excluded.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+        <footer class="footer">VTS is independent and not endorsed by Riot Games. &nbsp;·&nbsp; Data is for post-match reflection, not live opponent scouting.</footer>
+      </div>
+    </div>
+  </div>
+
+  <section id="overlay" class="overlay-root" aria-label="VTS overlay">
+    <div class="overlay-frame">
+      <div class="overlay-header drag">
+        <div class="overlay-brand no-drag"><span class="mini-mark">V</span><b>VTS<span class="accent">.</span></b><span class="overlay-tag">AGENT PREP</span></div>
+        <button class="overlay-close no-drag" id="overlay-close" title="Hide overlay">×</button>
+      </div>
+      <div class="overlay-copy">
+        <div class="overlay-eyebrow">YOUR PREFERRED PICKS</div>
+        <h2>Pick with <span>purpose.</span></h2>
+        <p>Three favorites, one clear plan.</p>
+      </div>
+      <div id="overlay-picks" class="overlay-picks"></div>
+      <div class="overlay-bottom">
+        <div class="overlay-information"><span class="tiny-dot"></span><span id="overlay-match-count">0 local matches analyzed</span></div>
+        <div class="overlay-shortcut">CTRL + SHIFT + I <span>INTERACT</span></div>
+        <div class="overlay-footnote">Manual agent selection only · no game control</div>
+      </div>
+    </div>
+  </section>
+  <script src="./renderer.js" defer></script>
+</body>
+</html>
