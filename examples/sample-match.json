@@ -1,0 +1,41 @@
+{
+  "_note": "SYNTHETIC demo data. Set own PUUID to demo-puuid in Settings to import. Not a real Riot match.",
+  "matchInfo": {
+    "matchId": "demo-match-001",
+    "mapId": "/Game/Maps/Ascent/Ascent",
+    "queueId": "competitive",
+    "gameStartMillis": 1793808000000
+  },
+  "players": [
+    {
+      "puuid": "demo-puuid",
+      "teamId": "Blue",
+      "characterId": "sample-character",
+      "stats": {
+        "kills": 22, "deaths": 14, "assists": 7,
+        "roundsPlayed": 24, "score": 6200
+      }
+    },
+    {
+      "puuid": "anonymous-opponent",
+      "teamId": "Red",
+      "stats": { "kills": 10, "deaths": 20, "assists": 2 }
+    }
+  ],
+  "teams": [
+    { "teamId": "Blue", "won": true },
+    { "teamId": "Red", "won": false }
+  ],
+  "roundResults": [
+    {
+      "playerStats": [
+        {
+          "puuid": "demo-puuid",
+          "damage": [
+            { "headshots": 13, "bodyshots": 22, "legshots": 3, "damage": 1450 }
+          ]
+        }
+      ]
+    }
+  ]
+}
