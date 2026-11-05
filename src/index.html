@@ -108,7 +108,7 @@
             <p>Import official match JSON and keep up to 500 summaries stored on this device.</p>
           </div>
           <div class="panel">
-            <div class="panel-head"><div><h3>Match log</h3><small id="match-counter">0 imported matches</small></div><div class="inline-buttons"><button class="btn btn-secondary btn-small" id="matches-export">Export CSV</button><button class="btn btn-secondary btn-small" id="clear-matches">Clear history</button><button class="btn btn-primary btn-small" id="matches-import">＋ Import JSON</button></div></div>
+            <div class="panel-head"><div><h3>Match log</h3><small id="match-counter">0 imported matches</small></div><div class="inline-buttons"><button class="btn btn-secondary btn-small" id="matches-riot-sync">Sync Riot</button><button class="btn btn-secondary btn-small" id="matches-export">Export CSV</button><button class="btn btn-secondary btn-small" id="clear-matches">Clear history</button><button class="btn btn-primary btn-small" id="matches-import">＋ Import JSON</button></div></div>
             <div id="all-matches" class="match-list full"></div>
           </div>
         </section>
@@ -176,8 +176,8 @@
                   <div><strong id="riot-connect-title">Riot Sign On</strong>
                   <p id="riot-connect-description">An approved Riot production app and secure authentication service are required. Signing in does not authorize client gameplay controls.</p></div>
                 </div>
-                <button class="btn btn-primary" id="riot-connect">Connect Riot account ↗</button>
-                <p class="panel-note">No Riot password is entered into VTS. Account statistics and match sync can only be enabled after approved integration is configured.</p>
+                <div class="inline-buttons"><button class="btn btn-primary" id="riot-connect">Connect Riot account ↗</button><button class="btn btn-secondary btn-small hidden" id="riot-disconnect">Disconnect</button></div>
+                <p class="panel-note">No Riot password is entered into VTS. Sign in through Riot's official page if an approved OAuth backend is configured.</p>
               </article>
               <article class="panel">
                 <div class="panel-head"><div><h3>Local match sync</h3><small>Optional automatic folder import every 60 seconds</small></div></div>
