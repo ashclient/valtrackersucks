@@ -30,3 +30,7 @@ test('map and weapons are filtered to display-safe fields', () => {
 test('rejects arbitrary catalog queries', async () => {
   await assert.rejects(getCatalog('anything-else'), /Unknown catalog/);
 });
+test('weapon metadata includes standard skins, all variants and actual level numbers',()=>{
+  const weapon=sanitizeWeapon({uuid:'gun',displayName:'Gun',skins:[{uuid:'skin',displayName:'Standard Gun',levels:[{uuid:'base',displayName:'Base'},{uuid:'upgrade',displayName:'Upgrade'}],chromas:[{uuid:'blue',displayName:'Blue',fullRender:'https://media.valorant-api.com/blue.png'}]}]});
+  assert.equal(weapon.skins.length,1);assert.equal(weapon.skins[0].levels[1].level,2);assert.equal(weapon.skins[0].chromas[0].id,'blue');
+});

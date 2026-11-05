@@ -1,21 +1,25 @@
-## VTS v0.3.0
+## VTS v0.4.0
 
-- Separate desktop Shop, Party and Live Match views.
-- Unofficial local Riot Client integration for daily offers, ready/unready and queue controls, agent select/lock, and visible players' latest competitive rank.
-- Independent in-game overlay with agent picks and match players.
-- Configurable global shortcuts: **Ctrl + Shift + V** shows/hides the overlay; **Ctrl + Shift + I** enables interaction by default.
-- Minimize or close the desktop to the system tray while keeping shortcuts and the overlay available. Use the tray menu to quit.
-- Full retained match history, up to 500 summaries, instead of a 40-match display cutoff.
+### Store and locker
+
+- Correct daily-price lookup with a fallback to the offer catalog when prices are missing.
+- Separate VP, Radianite and Kingdom Credit balances/prices; missing prices are never displayed as zero.
+- Accessory shop, featured bundles and Night Market sections with reset timers and discounted/original prices where supplied by Riot.
+- An owned-item Locker for weapon skins, unlocked levels/variants, player cards, titles, sprays and buddy copies.
+- Equip controls validate ownership against fresh entitlements, reload the current loadout, and preserve other slots and privacy settings. VTS does not purchase items.
+
+### Desktop and overlay
+
+- Artwork-led store cards, item inspection, weapon-slot navigation and a searchable locker.
+- Team-based overlay roster with agent portraits, rank badges and player reports.
+- Recent competitive reports include K/D, average ACS, HS% and win rate over up to 10 games. Data comes from the Riot Client session and is cached for five minutes.
+- Visible player reports can open their Tracker.gg profile. This is not a Tracker.gg API or scraping integration.
+- Private/unavailable histories fail clearly. Hidden identities are not resolved.
+- Reconnecting/disconnecting clears account-specific store, locker and report data.
 
 ### Downloads
 
-- **VTS.Setup.0.3.0.exe** — Windows x64 installer.
-- **VTS.0.3.0.exe** — Windows x64 portable executable.
+- **VTS.Setup.0.4.0.exe** — Windows x64 installer.
+- **VTS.0.4.0.exe** — Windows x64 portable executable.
 
-These builds are unsigned, so Windows may show a SmartScreen warning.
-
-### Validation and limitations
-
-The automated suite contains 28 tests. Electron/X11 checks exercised global hotkeys, custom bindings, tray persistence and separate app/overlay windows. Live Riot endpoint behavior and display over a running VALORANT game still require Windows validation. Borderless Windowed mode is the overlay target; exclusive fullscreen visibility is not guaranteed.
-
-The local integration requires Riot Client to remain signed in and uses unofficial endpoints that Riot can change. It does not require the optional production RSO backend. Hidden player identities are not resolved, and full opponent match histories are not implemented.
+The builds are unsigned. Unofficial Riot endpoints can change. Live authenticated store/loadout behavior and display over a running VALORANT game require Windows validation; Electron tests using synthetic inventories do not establish that compatibility. Borderless Windowed mode remains the overlay target.
