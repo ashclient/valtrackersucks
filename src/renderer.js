@@ -8,13 +8,16 @@ const AGENTS = [
 ];
 const titles = {
   overview: 'Overview', career: 'My career', matches: 'Match history',
-  agents: 'Agent presets', leaderboard: 'Leaderboard', settings: 'Settings'
+  agents: 'Agent presets', leaderboard: 'Leaderboard', library: 'Collection library', settings: 'Settings'
 };
 const overlayMode = new URLSearchParams(location.search).get('mode') === 'overlay';
 document.body.classList.toggle('is-overlay', overlayMode);
 let current = null;
 let activePage = 'overview';
 let toastTimeout = null;
+let agentCatalog = [];
+let weaponCatalog = [];
+let catalogRequested = false;
 
 const $ = id => document.getElementById(id);
 const node = (tag, className, text) => {
@@ -24,6 +27,17 @@ const node = (tag, className, text) => {
   return e;
 };
 function empty(parent) { parent.replaceChildren(); }
+function imageElement(src, label, styleName) {
+  if (typeof src !== 'string' || !src.startsWith('https://media.valorant-api.com/')) return null;
+  const img = node('img', styleName || 'catalog-image');
+  img.src = src; img.alt = label || ''; img.loading = 'lazy'; img.decoding = 'async';
+  img.referrerPolicy = 'no-referrer';
+  img.addEventListener('error', () => img.remove(), {once:true});
+  return img;
+}
+function agentByName(name) {
+  return agentCatalog.find(x => x.name.toLowerCase() === String(name).toLowerCase());
+}
 function text(id, value) { const e = $(id); if (e) e.textContent = String(value); }
 function metric(value, suffix) {
   return value === null || value === undefined || !Number.isFinite(Number(value)) ? '—' : String(value) + (suffix || '');
@@ -81,7 +95,11 @@ function renderMatches() {
 function favoriteRow(name, position) {
   const row = node('div', 'favorite-row');
   row.appendChild(node('div', 'favorite-number', String(position).padStart(2, '0')));
-  row.appendChild(node('div', 'favorite-bubble', (name || '?').slice(0, 1)));
+  const bubble = node('div', 'favorite-bubble', (name || '?').slice(0, 1));
+  const asset = agentByName(name);
+  const portrait = asset && imageElement(asset.portrait || asset.icon, name, 'agent-avatar');
+  if (portrait) {bubble.textContent = '';bubble.appendChild(portrait);}
+  row.appendChild(bubble);
   const details = node('div');
   details.appendChild(node('div', 'favorite-name', name));
   details.appendChild(node('span', 'favorite-hint', position === 1 ? 'Primary pick' : position === 2 ? 'Backup pick' : 'Flex option'));
@@ -107,14 +125,21 @@ function renderFavorites() {
   text('agent-count', favorites.length + ' / 3 SELECTED');
   const grid = $('agent-grid');
   empty(grid);
-  AGENTS.forEach(agent => {
+  const agentNames = agentCatalog.length ? agentCatalog.map(x => x.name).sort((a,b)=>a.localeCompare(b)) : AGENTS;
+  agentNames.forEach(agent => {
     const selected = favorites.includes(agent);
     const tile = node('button', 'agent-tile' + (selected ? ' selected' : ''));
     tile.type = 'button';
     tile.setAttribute('aria-pressed', String(selected));
-    tile.appendChild(node('span', 'agent-initial', agent.slice(0, 1)));
+    const asset = agentByName(agent);
+    const icon = asset && imageElement(asset.portrait || asset.icon, agent, 'agent-tile-portrait');
+    if (icon) tile.appendChild(icon);
+    else tile.appendChild(node('span', 'agent-initial', agent.slice(0, 1)));
+    if (asset) tile.title = asset.role + ' · ' + asset.description;
     if (selected) tile.appendChild(node('span', 'agent-check', '✓ PICK ' + (favorites.indexOf(agent) + 1)));
-    tile.appendChild(node('span', '', agent));
+    const name = node('span', 'agent-name', agent);
+    tile.appendChild(name);
+    if (asset) tile.appendChild(node('small', 'agent-role', asset.role));
     tile.addEventListener('click', () => toggleAgent(agent));
     grid.appendChild(tile);
   });
@@ -124,7 +149,11 @@ function renderFavorites() {
     const name = favorites[i];
     const row = node('div', 'overlay-pick');
     row.appendChild(node('span', 'overlay-pick-num', String(i + 1).padStart(2, '0')));
-    row.appendChild(node('span', 'overlay-pick-avatar', name ? name.charAt(0) : '—'));
+    const circle = node('span', 'overlay-pick-avatar', name ? name.charAt(0) : '—');
+    const asset = agentByName(name);
+    const portrait = asset && imageElement(asset.portrait || asset.icon, name, 'overlay-avatar-image');
+    if (portrait) {circle.textContent='';circle.appendChild(portrait);}
+    row.appendChild(circle);
     const content = node('div');
     content.appendChild(node('div', 'overlay-pick-name', name || 'No agent selected'));
     content.appendChild(node('small', '', ['PRIMARY', 'BACKUP', 'FLEX'][i]));
@@ -159,6 +188,12 @@ function renderMetrics() {
   text('career-region', 'Region: ' + current.settings.region.toUpperCase() + ' · Local imported history only');
   text('data-status', m.played ? 'LOCAL DATA READY' : 'LOCAL MODE');
   text('key-status', current.apiConfigured ? 'Official Riot API key detected in environment' : 'No approved Riot API key configured');
+  text('riot-connect-title', current.rsoConfigured ? 'Riot OAuth portal configured' : 'Riot Sign On • approval required');
+  text('riot-connect-description', current.rsoConfigured ?
+    'Use the external approved portal to authenticate. Personal live sync still requires backend integration.' :
+    'The app needs an approved Riot RSO client and secure backend. No login credentials are bundled.');
+  text('version-text', 'VTS ' + (current.version || 'developer preview'));
+  text('folder-path', current.settings.syncFolder || 'No folder selected');
   $('key-status').classList.toggle('ok', current.apiConfigured);
   text('overlay-match-count', m.played + ' local ' + (m.played === 1 ? 'match' : 'matches') + ' analyzed');
 }
@@ -254,7 +289,61 @@ function fillSettings() {
   $('setting-riotid').value = current.settings.riotId;
   $('setting-puuid').value = current.settings.puuid;
   $('setting-region').value = current.settings.region;
+  $('setting-startup').checked = current.settings.launchAtLogin === true;
+  $('setting-tray').checked = current.settings.minimizeToTray !== false;
+  $('setting-opacity').value = Math.round((current.settings.overlayOpacity || 0.98) * 100);
+  text('opacity-label', $('setting-opacity').value + '%');
 }
+
+function renderLibrary() {
+  const grid = $('library-grid');
+  if (!grid) return;
+  empty(grid);
+  const search = String($('library-filter').value || '').trim().toLowerCase();
+  const all = weaponCatalog.flatMap(weapon =>
+    (weapon.skins || []).map(skin => ({...skin, weapon:weapon.name, category:weapon.category, cost:weapon.cost})));
+  const filtered = all.filter(x => !search ||
+    x.name.toLowerCase().includes(search) || x.weapon.toLowerCase().includes(search));
+  text('library-status', filtered.length + ' cosmetic items' +
+    (filtered.length > 100 ? ' · Showing first 100, type to filter' : '') +
+    ' · Public catalog, not your personal daily shop');
+  for (const skin of filtered.slice(0, 100)) {
+    const card = node('article', 'skin-card');
+    const imageBox = node('div', 'skin-image-box');
+    const asset = imageElement(skin.image, skin.name, 'skin-image');
+    if (asset) imageBox.appendChild(asset);
+    card.appendChild(imageBox);
+    card.appendChild(node('strong', 'skin-title', skin.name));
+    card.appendChild(node('small', 'skin-sub', skin.weapon + ' · cosmetic preview'));
+    grid.appendChild(card);
+  }
+  if (!filtered.length) grid.appendChild(node('div', 'empty-inline',
+    weaponCatalog.length ? 'No cosmetic items match this search.' : 'The cosmetic catalog is unavailable. Try Reload assets.'));
+}
+async function loadCatalog(force = false) {
+  if (catalogRequested && !force) return;
+  catalogRequested = true;
+  try {
+    const res = await window.vts.catalog('agents');
+    if (res.ok && Array.isArray(res.data)) {
+      agentCatalog = res.data;
+      text('agent-catalog-status', agentCatalog.length + ' playable agents loaded from public game data.');
+      if (current) renderFavorites();
+    } else text('agent-catalog-status', 'Agent artwork temporarily unavailable. Offline agent choices remain available.');
+  } catch(error) {
+    text('agent-catalog-status', 'Offline agent list loaded.');
+  }
+  if (overlayMode) return;
+  try {
+    const res = await window.vts.catalog('weapons');
+    if (res.ok && Array.isArray(res.data)) weaponCatalog = res.data;
+    else text('library-status', res.error || 'Public content service unavailable.');
+    renderLibrary();
+  } catch(error) {
+    text('library-status', 'Public content service unavailable: ' + error.message);
+  }
+}
+
 function bind() {
   document.querySelectorAll('[data-view-target]').forEach(button => {
     button.addEventListener('click', () => showPage(button.dataset.viewTarget));
@@ -267,6 +356,33 @@ function bind() {
   $('settings-interaction').addEventListener('click', () => overlayAction('interaction'));
   $('overlay-close').addEventListener('click', () => overlayAction('hide'));
   $('load-board').addEventListener('click', loadLeaderboard);
+  $('setting-opacity').addEventListener('input', event => text('opacity-label', event.target.value + '%'));
+  $('choose-folder').addEventListener('click', async () => {
+    try {
+      const result = await window.vts.chooseFolder();
+      if (result.ok) {current = await window.vts.getState();renderAll();showToast('Local match folder selected.');}
+    } catch(error) {showToast(error.message,true);}
+  });
+  $('sync-now').addEventListener('click', async () => {
+    try {
+      const result = await window.vts.syncFolder();
+      showToast(result.ok ? 'Synced folder. ' + result.count + ' new matches found.' : result.reason, !result.ok);
+    } catch(error) {showToast(error.message,true);}
+  });
+  $('matches-export').addEventListener('click', async () => {
+    try {
+      const result = await window.vts.exportCsv();
+      if (result.ok) showToast('Exported ' + result.count + ' matches to ' + result.path);
+    } catch(error) {showToast(error.message,true);}
+  });
+  $('riot-connect').addEventListener('click', async () => {
+    try {
+      const result = await window.vts.riotLogin();
+      showToast(result.note || result.error, !result.ok);
+    } catch(error) {showToast(error.message,true);}
+  });
+  $('library-filter').addEventListener('input', renderLibrary);
+  $('library-refresh').addEventListener('click', () => {weaponCatalog=[];loadCatalog(true);});
   $('clear-matches').addEventListener('click', async () => {
     if (!confirm('Delete every imported match summary stored on this computer?')) return;
     current = await window.vts.clearMatches();
@@ -279,7 +395,10 @@ function bind() {
       ...current.settings,
       riotId: $('setting-riotid').value.trim(),
       puuid: $('setting-puuid').value.trim(),
-      region: $('setting-region').value
+      region: $('setting-region').value,
+      launchAtLogin: $('setting-startup').checked,
+      minimizeToTray: $('setting-tray').checked,
+      overlayOpacity: Number($('setting-opacity').value) / 100
     };
     if (next.puuid !== current.settings.puuid && current.matchCount &&
         !confirm('Changing your PUUID will clear match history associated with your previous player profile. Continue?')) return;
@@ -307,6 +426,7 @@ async function start() {
     current = await window.vts.getState();
     fillSettings();
     renderAll();
+    loadCatalog();
   } catch (error) {
     if (!overlayMode) showToast('Cannot initialize app: ' + error.message, true);
   }
