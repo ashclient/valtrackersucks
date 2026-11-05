@@ -25,7 +25,7 @@ async function clientOperation(operation) {
   clientBusy=true;
   try {return {ok:true,...await operation()};}
   catch(error) {return {ok:false,error:error.message};}
-  finally {clientBusy=false;notifyChanged();}
+  finally {clientBusy=false;if(!client.session){matchMonitor?.stop();updateAgentPanel(null);}notifyChanged();}
 }
 
 const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
