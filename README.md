@@ -1,8 +1,8 @@
 # VTS — VALORANT companion for Windows
 
-An independent VALORANT desktop app with a fast dashboard, optional always-on-top overlay, agent planning, match history, map statistics, cosmetic previews, and optional Riot Sign On integration for **consenting players** using an approved production API client.
+An independent VALORANT desktop app with automatic party and match statistics, a separate game overlay, shop, locker, agent controls and local match history. It connects to your signed-in Riot Client on Windows. An optional approved Riot Sign On integration is available separately.
 
-**Development version:** v0.4.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
+**Development version:** v0.5.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
 
 ## Install VTS (Windows)
 
@@ -25,15 +25,17 @@ To build the installer on Windows, run `npm run dist:win`. Builds include a gene
 
 ## Local Riot Client integration (development)
 
-Open **Shop**, select your region in Settings, and choose **Connect Riot Client** on Windows. Sign in through Riot Client first. No production API key or RSO backend is needed for this connection.
+Sign in to Riot Client first. VTS attempts to connect automatically on Windows; select your region in Settings if it differs from the default. You can also choose **Connect Riot Client** in Shop. Disable **Connect automatically** in Settings to keep the connection manual. Disconnect disables automatic reconnection. No production API key or RSO backend is needed for this connection.
 
 - **Store:** shows daily offers, accessory offers, featured bundles, Night Market discounts when active, wallet balances and reset times. Daily prices fall back to Riot's offer catalog when the storefront omits them; missing prices stay unavailable. VP, RP and Kingdom Credits are displayed separately. It reads the signed-in account's rotating offers. VALORANT can be closed, but Riot Client must stay running and signed in. Refresh explicitly to load offers.
 - **Party:** refresh lobby state, ready/unready your own account, and start/cancel matchmaking as party leader. VALORANT must be in a lobby.
 - **Agent select:** explicitly select or lock an agent in the current pregame session. Locking asks for confirmation. This can act while the game UI is loading into agent select; it does not change an agent after locking or after the match starts.
 - **Locker:** loads owned weapon skins, unlocked levels/variants, cards, titles, sprays and buddy copies. Select an item to inspect it, then choose Equip. The backend reloads the server loadout and entitlements, checks ownership, and changes only the requested slot. It preserves unrelated weapons and privacy settings. No purchase requests are implemented.
-- **Current match players:** shows agent portraits and latest recorded ranks, which may reflect an earlier act. Select a visible player for up to 10 recent competitive matches, K/D, average ACS, headshot percentage and win rate. Reports use the signed-in Riot Client session and cache for five minutes. Private/unavailable histories are explicit, and hidden player identities are not resolved.
-- **Performance:** Sync recent stats loads your own last 10 competitive matches without manual JSON import. These stats are a recent sample, not lifetime Tracker.gg statistics.
-- **Tracker.gg:** a visible player's report can open their Tracker.gg profile in the browser. No Tracker.gg API or scraping integration is claimed. Developer documentation was inaccessible in this environment; no Tracker key or browser credentials are collected.
+- **Live match:** the default view shows a profile beside a dense ally/enemy table, with rank, party, K/D, win rate, ACS, headshot percentage, ADR, games played, selected-agent sample and reported peak. Both windows update automatically every five seconds; player histories load in the background without clicks. Data is a sample of up to 10 competitive games, cached for five minutes. Empty and rejected histories have explicit row states.
+- **Match phases:** own party members load in the lobby, allied players load during agent select, and opponents load as soon as Riot includes them in pregame or provisioned core-game responses, including map loading. Future opponents are not assigned in the lobby; VTS cannot display a roster that Riot has not supplied.
+- **Names and parties:** displays Riot IDs returned by the signed-in session's name service, including masked in-game handles when the service returns them. Withheld identities and rejected histories remain unavailable. Matching **P#** badges identify confirmed current parties; hover to see members. **Past** means shared parties in completed games only, not a confirmed current group. VTS does not invent enemy party membership when it is absent from the response.
+- **Performance / history:** Sync Riot matches uses your local Riot Client session to import your own completed games, without requiring the optional RSO login. Changing an existing local profile asks before replacing its stored summaries.
+- **Tracker.gg:** a player's report can open their Tracker.gg profile in the browser. VTS does not use a Tracker.gg API or scrape private profiles. The layout uses the published Tracker live-match and agent-select screens as references; VTS implements its own interface and uses Riot data rather than proprietary Tracker scores.
 - Existing offline match imports, career summaries, presets, overlay, catalog browser and CSV exports remain available. History and map breakdowns now include all retained summaries (up to 500), rather than only the latest 40.
 
 This connector uses **unofficial endpoints**, which Riot can change or reject. It is a development implementation, not a claim of Riot approval or compatibility. It has fixture-based request tests and Linux UI validation; **live store, locker writes, party, agent and player-history behavior still needs validation with a signed-in Windows Riot Client**. Installer packaging is checked by the Windows CI workflow; it does not validate the live Riot endpoints.
@@ -42,7 +44,9 @@ VTS reads the current user's `%LOCALAPPDATA%/Riot Games/Riot Client/Config/lockf
 
 ## Development validation
 
-Run `npm test` and the JavaScript syntax checks in `.github/workflows/windows.yml`. Connector tests mock remote responses: they validate request construction and guards, not live endpoint compatibility.
+Run `npm test` and the JavaScript syntax checks in `.github/workflows/windows.yml`. Connector tests mock remote responses: they validate request construction and guards, not live endpoint compatibility. The internal-match parser also has an anonymized fixture derived from a published real-format response; it checks `subject` and `queueID`, which differ from the official API schema. See [fixture provenance](tests/fixtures/README.md).
+
+UI references: [Tracker app screenshots](https://tracker.gg/valorant/app) and [Overwolf listing](https://www.overwolf.com/app/tracker_network-valorant_tracker). The live view follows their profile/table composition using original VTS code and branding.
 
 On Windows, validate in this order:
 1. Sign in to Riot Client, leave VALORANT closed, and load the daily shop. Compare names, prices and expiry with the game after launching it.
@@ -50,7 +54,7 @@ On Windows, validate in this order:
 3. In a suitable match, select an available agent and confirm lock once. Check behavior when pregame ends or another player takes the agent.
 4. Load Locker, compare owned skins/levels/variants with the game, and equip a different owned skin. Verify other weapons, buddies, cards, sprays and privacy settings are preserved. Repeat for a card, title, spray slot and buddy copy. Locked/unowned variants must be rejected.
 5. Compare daily VP prices, accessory KC prices, bundle discounts, active Night Market discounts and wallet balances with the game. Check an inactive Night Market and missing-price responses.
-6. In an active match, load visible player ranks and a player report. Verify the sample size, K/D, ACS, headshot percentage and win rate. Hidden players must not expose reports. Private/unavailable data must fail clearly without signing out your own session.
+6. Leave Live match open without clicking a player. Verify automatic party stats in the lobby, allied stats during agent select, and opponents as soon as the server publishes the loading/match roster. Verify sample size, K/D, ACS, headshots, ADR and party grouping against the game. Test a withheld identity and a rejected history: neither should fabricate data or sign out your account. Use **Diagnostics** to copy endpoint HTTP statuses if a row fails; the report excludes credentials, player IDs and names.
 7. Disconnect and verify controls become unavailable. Reconnect after signing out, switching accounts, changing regions or an expired session. Wrong-region and rejected-session requests must fail clearly.
 
 The public catalog/version service uses `valorant-api.com`; artwork uses `media.valorant-api.com`. Riot data uses `pd.<shard>.a.pvp.net` and `glz-<region>.<shard>.a.pvp.net`. These hosts must be reachable on the Windows machine. Live public catalog and artwork requests were validated here. The cloud machine contains no Riot Client, so authenticated live validation must happen on Windows. Preview screenshots marked VISUAL QA contain synthetic account data and real public artwork.
@@ -103,15 +107,17 @@ The backend is a minimal **single-process reference deployment**. For public pro
 - Local match summaries are saved in Electron's per-user data directory.
 - The Riot backend stores ephemeral authorized accounts and sessions in memory.
 - It processes only the authenticated user's finished matches and returns aggregated own-player match data.
-- No hidden accounts or opponent pre-match scouting.
-- Players must explicitly opt in; VTS never publishes a user's stats to other people by default.
+- The local connector shows only identities returned for the current roster by the signed-in session; it does not bypass rejected profile/history requests.
+- VTS does not publish your account data. The separate official RSO backend processes only its consenting authenticated account.
 
 ## Project layout
 
 - `electron/store.cjs` — store normalization, reward IDs, prices, currency maps and discounts.
 - `electron/presentation.cjs` — catalog joins and owned-item locker presentation.
 - `src/companion.js` and `src/companion.css` — store, locker, player reports and expanded overlay.
-- `electron/client.cjs` — local Riot Client session, shop, party, agent and visible-player rank requests.
+- `electron/client.cjs` — local Riot Client session, shop, party, agent, roster and player-history requests.
+- `electron/match-monitor.cjs` — shared phase polling, bounded background stats hydration and stale-result suppression.
+- `src/match-view.js` and `src/match-view.css` — automatic desktop and overlay roster tables.
 - `electron/main.cjs` — Windows/tray lifecycle, overlay, IPC, local and approved account integrations.
 - `electron/preload.cjs` — restricted IPC bridge.
 - `electron/catalog.cjs` — public agents, maps, weapons and skins.

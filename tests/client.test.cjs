@@ -61,7 +61,7 @@ test('disconnect during connection prevents late response from restoring session
   release({subject:own,accessToken:'private',token:'private'});
   await assert.rejects(pending,/canceled/);assert.equal(client.session,null);
 });
-test('active-match ranks never resolve or query hidden player identities',async()=>{
+test('withheld Riot IDs have no exposed ID or history query',async()=>{
   const hidden='44444444-4444-4444-4444-444444444444';
   const {client,calls}=fixture({
     ['/core-game/v1/players/'+own]:{MatchID:party},
@@ -71,10 +71,10 @@ test('active-match ranks never resolve or query hidden player identities',async(
   });
   await client.connect('na');const players=await client.players();
   assert.equal(players[0].name,'Myself#NA1');assert.equal(players[0].rank.tier,18);
-  assert.deepEqual(players[1],{name:'Hidden player',team:'Opponent',rank:null});
-  assert.ok(!calls.some(x=>x.url.includes(hidden)));
+  assert.equal(players[1].name,'Hidden player');assert.equal(players[1].puuid,undefined);assert.equal(players[1].rank,null);
+  assert.ok(!calls.some(x=>x.url.includes('/mmr/v1/players/'+hidden)||x.url.includes('/match-history/v1/history/'+hidden)));
   const nameRequest=calls.find(x=>x.url.includes('/name-service/'));
-  assert.deepEqual(JSON.parse(nameRequest.opts.body),[own]);
+  assert.deepEqual(JSON.parse(nameRequest.opts.body),[own,hidden]);
 });
 const {ITEM_TYPES}=require('../electron/store.cjs');
 const weapon='99999999-9999-9999-9999-999999999999';
@@ -130,4 +130,32 @@ test('recent K/D, ACS and HS percentage use totals, not averages of match ratios
  const first={matchInfo:{matchId:party},players:[{puuid:own,stats:{kills:20,deaths:10,roundsPlayed:20,score:5000}}],roundResults:[{playerStats:[{puuid:own,damage:[{headshots:1,bodyshots:1,damage:200}]}]}]};
  const second={matchInfo:{matchId:agent},players:[{puuid:own,stats:{kills:1,deaths:1,roundsPlayed:10,score:1000}}],roundResults:[{playerStats:[{puuid:own,damage:[{headshots:0,bodyshots:8,damage:100}]}]}]};
  const {client}=fixture({['/match-history/v1/history/'+own]:{History:[{MatchID:party},{MatchID:agent}]},['/match-details/v1/matches/'+party]:first,['/match-details/v1/matches/'+agent]:second});await client.connect('na');const stats=await client.playerStats(own);assert.equal(stats.metrics.kd,1.91);assert.equal(stats.metrics.acs,200);assert.equal(stats.metrics.hs,10);assert.equal(stats.metrics.adr,10);
+});
+test('real client match-detail contract no longer produces the empty-summary error',async()=>{
+ const detail=require('./fixtures/client-match-detail.json'),id=detail.matchInfo.matchId;
+ const {client}=fixture({['/match-history/v1/history/'+own]:{History:[{MatchID:id}]},['/match-details/v1/matches/'+id]:detail});
+ await client.connect('na');const stats=await client.playerStats(own);assert.equal(stats.metrics.played,1);assert.equal(stats.metrics.kd,1.9);assert.equal(stats.metrics.acs,303);assert.equal(stats.metrics.hs,34.5);assert.equal(stats.metrics.adr,206);
+ assert.equal(Object.values(stats.agents)[0].played,1);
+});
+test('lobby roster loads party members and confirmed party grouping without a current match',async()=>{
+ const {client,calls}=fixture({['/parties/v1/players/'+own]:{CurrentPartyID:party},['/parties/v1/parties/'+party]:{ID:party,Members:[{Subject:own,PlayerIdentity:{Incognito:false}},{Subject:agent,PlayerIdentity:{Incognito:false}}]},'/name-service/v2/players':[{Subject:own,GameName:'Me',TagLine:'NA1'},{Subject:agent,GameName:'Teammate',TagLine:'NA1'}]});
+ await client.connect('na');client.local=async()=>({presences:[{puuid:own,product:'valorant',private:Buffer.from(JSON.stringify({sessionLoopState:'MENUS'})).toString('base64')}]});
+ const roster=await client.roster();assert.equal(roster.phase,'lobby');assert.equal(roster.players.length,2);assert.equal(roster.players[0].partyGroup,roster.players[1].partyGroup);assert.ok(!calls.some(c=>c.url.includes('/core-game/')));
+});
+test('agent-select roster is available before core-game and does not invent opponents',async()=>{
+ const {client}=fixture({['/pregame/v1/players/'+own]:{MatchID:party},['/pregame/v1/matches/'+party]:{ID:party,PregameState:'character_select_active',MapID:'/Game/Maps/Ascent/Ascent',EnemyTeamSize:5,AllyTeam:{TeamID:'Blue',Players:[{Subject:own},{Subject:agent,PlayerIdentity:{Incognito:false}}]},EnemyTeam:null},'/name-service/v2/players':[{Subject:own,GameName:'Me',TagLine:'NA1'},{Subject:agent,GameName:'Ally',TagLine:'NA1'}]});
+ await client.connect('na');const roster=await client.roster();assert.equal(roster.phase,'agent-select');assert.equal(roster.players.length,2);assert.equal(roster.enemyExpected,5);assert.equal(roster.players.filter(p=>p.team==='Opponent').length,0);
+});
+test('provisioned pregame uses the supplied core-game roster during loading',async()=>{
+ const {client}=fixture({['/pregame/v1/players/'+own]:{MatchID:party},['/pregame/v1/matches/'+party]:{ID:party,PregameState:'provisioned',AllyTeam:{TeamID:'Blue',Players:[{Subject:own}]}},['/core-game/v1/players/'+own]:{MatchID:party},['/core-game/v1/matches/'+party]:{MatchID:party,MapID:'/Game/Maps/Ascent/Ascent',Players:[{Subject:own,TeamID:'Blue'},{Subject:agent,TeamID:'Red',PlayerIdentity:{Incognito:false}}]}});
+ await client.connect('na');const roster=await client.roster();assert.equal(roster.phase,'match');assert.equal(roster.players.length,2);assert.equal(roster.players[1].team,'Opponent');
+});
+test('masked Riot IDs are shown only when returned by Riot for roster participants',async()=>{
+ const {client}=fixture({['/core-game/v1/players/'+own]:{MatchID:party},['/core-game/v1/matches/'+party]:{Players:[{Subject:own,TeamID:'Blue'},{Subject:agent,TeamID:'Red',PlayerIdentity:{Incognito:true}}]},'/name-service/v2/players':[{Subject:agent,GameName:'ReturnedByRiot',TagLine:'NA1'}]});
+ await client.connect('na');const roster=await client.roster();assert.equal(roster.players[1].name,'ReturnedByRiot#NA1');assert.equal(roster.players[1].puuid,agent);assert.ok(client.visiblePlayers.has(agent));
+});
+test('concurrent player reports coalesce shared match-detail requests',async()=>{
+ const detail=require('./fixtures/client-match-detail.json'),id=detail.matchInfo.matchId;
+ const {client,calls}=fixture({['/match-history/v1/history/'+own]:{History:[{MatchID:id}]},['/match-history/v1/history/'+party]:{History:[{MatchID:id}]},['/match-details/v1/matches/'+id]:detail});
+ await client.connect('na');client.visiblePlayers.add(party);await Promise.all([client.playerStats(own),client.playerStats(party)]);assert.equal(calls.filter(c=>c.url.includes('/match-details/')).length,1);
 });

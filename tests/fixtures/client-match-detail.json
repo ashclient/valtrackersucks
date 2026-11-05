@@ -1,0 +1,616 @@
+{
+  "matchInfo": {
+    "mapId": "/Game/Maps/Ascent/Ascent",
+    "gameStartMillis": 1684034322111,
+    "queueID": "competitive",
+    "matchId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+  },
+  "players": [
+    {
+      "subject": "11111111-1111-1111-1111-111111111111",
+      "teamId": "Red",
+      "characterId": "cd8363e1-498b-47f8-9901-07e5f83169fb",
+      "stats": {
+        "score": 5148,
+        "roundsPlayed": 17,
+        "kills": 19,
+        "deaths": 10,
+        "assists": 2
+      }
+    },
+    {
+      "subject": "22222222-2222-2222-2222-222222222222",
+      "teamId": "Red",
+      "characterId": "f39e8d99-71ef-4010-ba60-1c0bf402ab8c",
+      "stats": {
+        "score": 3705,
+        "roundsPlayed": 17,
+        "kills": 13,
+        "deaths": 10,
+        "assists": 5
+      }
+    }
+  ],
+  "teams": [
+    {
+      "teamId": "Red",
+      "won": true,
+      "roundsPlayed": 17,
+      "roundsWon": 13,
+      "numPoints": 13
+    },
+    {
+      "teamId": "Blue",
+      "won": false,
+      "roundsPlayed": 17,
+      "roundsWon": 4,
+      "numPoints": 4
+    }
+  ],
+  "roundResults": [
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 171,
+              "headshots": 1,
+              "bodyshots": 3,
+              "legshots": 0
+            },
+            {
+              "damage": 105,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 25,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            },
+            {
+              "damage": 43,
+              "headshots": 0,
+              "bodyshots": 2,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 160,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 35,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 159,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 159,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 55,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": []
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 140,
+              "headshots": 0,
+              "bodyshots": 4,
+              "legshots": 0
+            },
+            {
+              "damage": 70,
+              "headshots": 0,
+              "bodyshots": 2,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 80,
+              "headshots": 0,
+              "bodyshots": 2,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": []
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 114,
+              "headshots": 0,
+              "bodyshots": 2,
+              "legshots": 1
+            },
+            {
+              "damage": 17,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 6,
+              "headshots": 0,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 140,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": []
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 39,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 172,
+              "headshots": 1,
+              "bodyshots": 5,
+              "legshots": 0
+            },
+            {
+              "damage": 200,
+              "headshots": 1,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 239,
+              "headshots": 1,
+              "bodyshots": 2,
+              "legshots": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 29,
+              "headshots": 1,
+              "bodyshots": 2,
+              "legshots": 0
+            },
+            {
+              "damage": 160,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 240,
+              "headshots": 1,
+              "bodyshots": 2,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 245,
+              "headshots": 1,
+              "bodyshots": 3,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 12,
+              "headshots": 1,
+              "bodyshots": 1,
+              "legshots": 0
+            },
+            {
+              "damage": 181,
+              "headshots": 1,
+              "bodyshots": 1,
+              "legshots": 0
+            },
+            {
+              "damage": 188,
+              "headshots": 0,
+              "bodyshots": 3,
+              "legshots": 2
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 24,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 160,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 200,
+              "headshots": 1,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 40,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 40,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 209,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 140,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 74,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 18,
+              "headshots": 0,
+              "bodyshots": 3,
+              "legshots": 0
+            },
+            {
+              "damage": 145,
+              "headshots": 0,
+              "bodyshots": 6,
+              "legshots": 0
+            },
+            {
+              "damage": 78,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 89,
+              "headshots": 0,
+              "bodyshots": 2,
+              "legshots": 0
+            },
+            {
+              "damage": 101,
+              "headshots": 0,
+              "bodyshots": 4,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 210,
+              "headshots": 2,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 72,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 30,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 160,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 166,
+              "headshots": 1,
+              "bodyshots": 1,
+              "legshots": 0
+            },
+            {
+              "damage": 10,
+              "headshots": 0,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 115,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 137,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 1
+            },
+            {
+              "damage": 64,
+              "headshots": 0,
+              "bodyshots": 2,
+              "legshots": 0
+            },
+            {
+              "damage": 35,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": []
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 157,
+              "headshots": 0,
+              "bodyshots": 5,
+              "legshots": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "playerStats": [
+        {
+          "subject": "11111111-1111-1111-1111-111111111111",
+          "damage": [
+            {
+              "damage": 160,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 160,
+              "headshots": 1,
+              "bodyshots": 0,
+              "legshots": 0
+            }
+          ]
+        },
+        {
+          "subject": "22222222-2222-2222-2222-222222222222",
+          "damage": [
+            {
+              "damage": 40,
+              "headshots": 0,
+              "bodyshots": 0,
+              "legshots": 0
+            },
+            {
+              "damage": 23,
+              "headshots": 0,
+              "bodyshots": 1,
+              "legshots": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

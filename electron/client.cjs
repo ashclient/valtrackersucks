@@ -4,9 +4,9 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const https = require('node:https');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const REGIONS = {na:'na-1',eu:'eu-1',ap:'ap-1',kr:'kr-1',br:'br-1',latam:'latam-1'};
+const REGIONS = {na:'na-1',eu:'eu-1',ap:'ap-1',kr:'kr-1',br:'na-1',latam:'na-1'};
 const { normalizeStore, ITEM_TYPES } = require('./store.cjs');
-const { analyzeMatch, summary } = require('../src/analytics.cjs');
+const { analyzeMatch, aggregateRecent, playerId } = require('../src/analytics.cjs');
 const PLATFORM = Buffer.from(JSON.stringify({platformType:'PC',platformOS:'Windows',platformOSVersion:'10.0.19045.1.256.64bit',platformChipset:'Unknown'})).toString('base64');
 function parseLockfile(raw) {
   const parts = raw.trim().split(':');
@@ -32,9 +32,9 @@ class RiotClient {
     this.fetch=fetchJSON; this.readLockfile=readLockfile || (()=>{
       if(process.platform!=='win32'||!process.env.LOCALAPPDATA)throw new Error('Local Riot Client connection requires Windows.');
       return fs.readFile(path.join(process.env.LOCALAPPDATA,'Riot Games','Riot Client','Config','lockfile'),'utf8');
-    }); this.local=localRequest;this.session=null;this.generation=0;this.visiblePlayers=new Set();this.statsCache=new Map();this.matchCache=new Map();
+    }); this.local=localRequest;this.session=null;this.generation=0;this.visiblePlayers=new Set();this.statsCache=new Map();this.matchCache=new Map();this.rankCache=new Map();this.statsInflight=new Map();this.matchInflight=new Map();this.localLock=null;this.diagnostics=[];this.partyCache=null;this.nameCache=new Map();
   }
-  disconnect(){this.generation++;this.session=null;this.visiblePlayers.clear();this.statsCache.clear();this.matchCache.clear();}
+  disconnect(){this.generation++;this.session=null;this.visiblePlayers.clear();this.statsCache.clear();this.matchCache.clear();this.rankCache.clear();this.statsInflight.clear();this.matchInflight.clear();this.localLock=null;this.partyCache=null;this.nameCache.clear();}
   async connect(region) {
     this.disconnect();const generation=this.generation;
     if(!REGIONS[region])throw new Error('Choose a supported region in Settings.');
@@ -46,6 +46,7 @@ class RiotClient {
     const version=await res.json();
     if(!version.data?.riotClientVersion)throw new Error('VALORANT version service returned invalid data.');
     if(generation!==this.generation)throw new Error('Connection canceled.');
+    this.localLock=lock;
     this.session={puuid:auth.subject,access:auth.accessToken,entitlement:auth.token,region,version:version.data.riotClientVersion};
     return {connected:true,region};
   }
@@ -55,6 +56,8 @@ class RiotClient {
     const host=service==='pd'?`pd.${s.region}.a.pvp.net`:`glz-${REGIONS[s.region]}.${s.region}.a.pvp.net`;
     const response=await this.fetch('https://'+host+route,{method,signal:AbortSignal.timeout(10000),headers:{Authorization:'Bearer '+s.access,'X-Riot-Entitlements-JWT':s.entitlement,'X-Riot-ClientVersion':s.version,'X-Riot-ClientPlatform':PLATFORM,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
     if(s!==this.session)throw new Error('The account connection changed. Refresh and try again.');
+    this.diagnostics.push({at:new Date().toISOString(),service,method,path:route.split('?')[0].replace(/[a-f0-9]{8}-[a-f0-9-]{27,}/gi,':id'),status:response.status});
+    if(this.diagnostics.length>40)this.diagnostics.shift();
     if(response.status===403&&permissionFailure)return null;
     if(response.status===401||response.status===403){if(this.session===s)this.disconnect();throw new Error('Riot rejected this session. Reconnect Riot Client and check your region.');}
     if(response.status===404)return null;
@@ -129,41 +132,122 @@ class RiotClient {
   }
   async playerStats(puuid){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
-    if(puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('Only your account and visible players in the current match can be queried.');
+    if(puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('Only your account and visible players in the current roster can be queried.');
     const cached=this.statsCache.get(puuid);if(cached&&cached.expires>Date.now())return {...cached.value,cached:true};
+    if(this.statsInflight.has(puuid))return this.statsInflight.get(puuid);
+    const work=this.fetchPlayerStats(puuid,s);this.statsInflight.set(puuid,work);
+    try{return await work;}finally{if(this.statsInflight.get(puuid)===work)this.statsInflight.delete(puuid);}
+  }
+  async fetchPlayerStats(puuid,s){
     const history=await this.request('pd',`/match-history/v1/history/${puuid}?startIndex=0&endIndex=10&queue=competitive`,'GET',undefined,s,{permissionFailure:true});
-    if(!history || !Array.isArray(history.History))throw new Error('Recent match history is unavailable for this player.');
-    const matches=[];let unavailable=0;
-    const totals={kills:0,deaths:0,score:0,rounds:0,heads:0,hits:0,damage:0,damageRounds:0};
-    const number=value=>Number.isFinite(Number(value))&&Number(value)>=0?Number(value):0;
+    if(!history || !Array.isArray(history.History)){
+      const status=this.diagnostics.filter(d=>d.path.includes('/match-history/')).at(-1)?.status;
+      throw new Error('Recent history unavailable'+(status?' (HTTP '+status+')':'')+'.');
+    }
+    const matches=[];const partners=new Map();let unavailable=0;
     for(const row of history.History.slice(0,10)){
+      if(s!==this.session||puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('The visible roster changed.');
       if(!UUID.test(row.MatchID))continue;
       try{
-        let detail=this.matchCache.get(row.MatchID);
-        if(!detail){detail=await this.request('pd',`/match-details/v1/matches/${row.MatchID}`,'GET',undefined,s,{permissionFailure:true});if(detail){if(this.matchCache.size>=100)this.matchCache.delete(this.matchCache.keys().next().value);this.matchCache.set(row.MatchID,detail);}}
-        const match=analyzeMatch(detail,puuid);matches.push(match);
-        const raw=detail.players.find(player=>player.puuid===puuid)?.stats || {};
-        totals.kills+=match.kills;totals.deaths+=match.deaths;totals.score+=number(raw.score);totals.rounds+=match.rounds;
-        let hasDamage=false;
-        for(const round of Array.isArray(detail.roundResults)?detail.roundResults:[]){
-          const ownRound=(round.playerStats || []).find(player=>player.puuid===puuid);
-          if(!Array.isArray(ownRound?.damage))continue;hasDamage=true;
-          for(const hit of ownRound.damage){totals.heads+=number(hit.headshots);totals.hits+=number(hit.headshots)+number(hit.bodyshots)+number(hit.legshots);totals.damage+=number(hit.damage);}
-        }
-        if(hasDamage)totals.damageRounds+=match.rounds;
-      }catch(error){if(!this.session||this.session!==s)throw error;unavailable++;}
+        const detail=await this.matchDetail(row.MatchID,s);matches.push(analyzeMatch(detail,puuid));
+        const owner=detail.players.find(p=>playerId(p)===puuid),party=owner?.partyId;
+        if(party)for(const other of detail.players){const id=playerId(other);if(id!==puuid&&other.partyId===party&&this.visiblePlayers.has(id)){const old=partners.get(id)||{puuid:id,matches:0,lastPlayedAt:0};old.matches++;old.lastPlayedAt=Math.max(old.lastPlayedAt,detail.matchInfo?.gameStartMillis || 0);partners.set(id,old);}}
+      }
+      catch(error){if(!this.session||this.session!==s)throw error;unavailable++;}
     }
-    const metrics=summary(matches);
-    if(matches.length){
-      metrics.kd=Math.round(totals.kills/Math.max(1,totals.deaths)*100)/100;
-      metrics.acs=totals.rounds?Math.round(totals.score/totals.rounds):null;
-      metrics.hs=totals.hits?Math.round(totals.heads/totals.hits*1000)/10:null;
-      metrics.adr=totals.damageRounds?Math.round(totals.damage/totals.damageRounds):null;
-    }
-    const value={source:'Riot Client · recent competitive matches',metrics,matches,unavailable,fetchedAt:Date.now()};
-    if(!matches.length&&history.History.length)throw new Error('Match summaries could not be loaded. Try again later.');
+    if(!matches.length&&history.History.length)throw new Error('Match details did not contain usable player stats. Copy diagnostics from the app.');
+    if(s!==this.session || puuid!==s.puuid&&!this.visiblePlayers.has(puuid))throw new Error('The visible roster changed.');
+    const agents={};
+    for(const id of new Set(matches.map(m=>m.agentId).filter(Boolean)))agents[id]=aggregateRecent(matches.filter(m=>m.agentId===id));
+    const value={source:'Riot Client · last 10 competitive matches',metrics:aggregateRecent(matches),agents,recentPartyPartners:[...partners.values()],matches,unavailable,fetchedAt:Date.now()};
     if(this.statsCache.size>=50)this.statsCache.delete(this.statsCache.keys().next().value);
     this.statsCache.set(puuid,{value,expires:Date.now()+300000});return value;
+  }
+  async matchDetail(id,s){
+    if(this.matchCache.has(id))return this.matchCache.get(id);
+    if(this.matchInflight.has(id))return this.matchInflight.get(id);
+    const work=this.request('pd',`/match-details/v1/matches/${id}`,'GET',undefined,s,{permissionFailure:true});this.matchInflight.set(id,work);
+    try{const value=await work;if(value){if(this.matchCache.size>=100)this.matchCache.delete(this.matchCache.keys().next().value);this.matchCache.set(id,value);}return value;}
+    finally{if(this.matchInflight.get(id)===work)this.matchInflight.delete(id);}
+  }
+  async playerRank(id){
+    const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
+    if(id!==s.puuid&&!this.visiblePlayers.has(id))throw new Error('Player is not visible.');
+    const cached=this.rankCache.get(id);if(cached&&cached.expires>Date.now())return cached.value;
+    const mmr=await this.request('pd',`/mmr/v1/players/${id}`,'GET',undefined,s,{permissionFailure:true});
+    if(!mmr)return null;
+    const update=mmr.LatestCompetitiveUpdate;
+    const seasons=Object.values(mmr.QueueSkills?.competitive?.SeasonalInfoBySeasonID || {});
+    const latest=seasons.find(season=>season.SeasonID===update?.SeasonID);
+    const tier=latest?.CompetitiveTier ?? update?.TierAfterUpdate;
+    const value={rank:Number.isInteger(tier)?{tier,rr:latest?.RankedRating ?? update?.RankedRatingAfterUpdate}:null,peakTier:Math.max(0,...seasons.map(x=>x.CompetitiveTier || 0),Number(tier)||0)};
+    this.rankCache.set(id,{value,expires:Date.now()+60000});return value;
+  }
+  async selfPresence(){
+    if(!this.localLock||!this.session)return null;
+    try{
+      const data=await this.local(this.localLock,'/chat/v4/presences');
+      const own=data?.presences?.find(p=>p.puuid===this.session?.puuid&&p.product==='valorant');
+      if(!own?.private)return null;
+      return JSON.parse(Buffer.from(own.private,'base64').toString('utf8'));
+    }catch{return null;}
+  }
+  async currentParty(s=this.session){
+    if(this.partyCache&&this.partyCache.expires>Date.now())return this.partyCache.value;
+    const own=await this.request('glz',`/parties/v1/players/${s.puuid}`,'GET',undefined,s,{permissionFailure:true});
+    const value=UUID.test(own?.CurrentPartyID)?await this.request('glz',`/parties/v1/parties/${own.CurrentPartyID}`,'GET',undefined,s,{permissionFailure:true}):null;
+    this.partyCache={value,expires:Date.now()+15000};return value;
+  }
+  async roster(){
+    const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
+    const presence=await this.selfPresence();
+    let phase='lobby',contextId='lobby',mapId='',queue='',players=[],notice='',enemyExpected=0,party=null;
+    if(presence?.sessionLoopState!=='MENUS'){
+      const pre=await this.request('glz',`/pregame/v1/players/${s.puuid}`,'GET',undefined,s,{permissionFailure:true});
+      const core=await this.request('glz',`/core-game/v1/players/${s.puuid}`,'GET',undefined,s,{permissionFailure:true});
+      let preg=null;
+      if(UUID.test(pre?.MatchID))preg=await this.request('glz',`/pregame/v1/matches/${pre.MatchID}`,'GET',undefined,s,{permissionFailure:true});
+      if(preg){
+        phase=preg.PregameState==='provisioned'?'loading':'agent-select';contextId=pre.MatchID;mapId=preg.MapID || '';queue=preg.QueueID || '';
+        const teams=preg.Teams?.length?preg.Teams:[preg.AllyTeam,preg.EnemyTeam].filter(Boolean);
+        for(const team of teams)for(const player of team.Players || [])if(!players.some(p=>p.Subject===player.Subject))players.push({...player,TeamID:team.TeamID});
+        enemyExpected=preg.EnemyTeamSize || 5;
+        notice='Opponent data appears when Riot supplies the match roster.';
+      }
+      if(UUID.test(core?.MatchID)&&(!preg || phase==='loading'&&core.MatchID===pre.MatchID)){
+        const match=await this.request('glz',`/core-game/v1/matches/${core.MatchID}`,'GET',undefined,s,{permissionFailure:true});
+        if(match){phase='match';contextId=core.MatchID;mapId=match.MapID || '';players=match.Players || [];enemyExpected=5;notice='Roster available during map loading and the match.';}
+      }
+    }
+    if(phase==='lobby'){
+      party=await this.currentParty(s);
+      if(party){players=(party.Members || []).map(p=>({...p,TeamID:'party'}));contextId='party:'+(party.ID || 'current');queue=party.MatchmakingData?.QueueID || '';}
+      if(!players.some(p=>p.Subject===s.puuid))players.unshift({Subject:s.puuid,TeamID:'party'});
+      notice='Party stats load automatically. Opponents have not been assigned in the lobby.';
+    }
+    if(s!==this.session)throw new Error('The account connection changed.');
+    const own=players.find(p=>p.Subject===s.puuid);if(!own)throw new Error('Your account is not in the returned roster.');
+    if(!party)party=await this.currentParty(s);
+    const candidates=players.filter(p=>UUID.test(p.Subject)).slice(0,10);
+    let names=[];
+    const missing=candidates.filter(p=>!this.nameCache.has(p.Subject));
+    if(missing.length){
+      try{const response=await this.request('pd','/name-service/v2/players','PUT',missing.map(p=>p.Subject),s,{permissionFailure:true});if(Array.isArray(response))for(const name of response)if(name.GameName)this.nameCache.set(name.Subject,name);}
+      catch(error){if(s!==this.session)throw error;}
+    }
+    names=candidates.map(p=>this.nameCache.get(p.Subject)).filter(Boolean);
+    const visible=candidates.filter(p=>p.Subject===s.puuid||p.PlayerIdentity?.Incognito===false||names.some(n=>n.Subject===p.Subject));
+    this.visiblePlayers=new Set(visible.map(p=>p.Subject));
+    const partyMembers=new Set((party?.Members || []).map(p=>p.Subject));
+    const groups=new Map();
+    for(const player of players){const id=player.PartyID || (partyMembers.has(player.Subject)?party?.ID || 'own-party':null);if(id){if(!groups.has(id))groups.set(id,[]);groups.get(id).push(player.Subject);}}
+    const partyGroups=[...groups.values()].filter(group=>group.length>1);
+    const rows=players.slice(0,10).map((player,index)=>{
+      const allowed=this.visiblePlayers.has(player.Subject),name=allowed&&names.find(n=>n.Subject===player.Subject);
+      const partyIndex=partyGroups.findIndex(group=>group.includes(player.Subject));
+      return {slot:index,...partyIndex>=0?{partyGroup:'P'+(partyIndex+1),partySource:'Current Riot party'}:{},agentId:player.CharacterID || '',isOwn:player.Subject===s.puuid,selectionState:player.CharacterSelectionState || '',name:allowed?(name?.GameName?name.GameName+'#'+name.TagLine:player.Subject===s.puuid?'You':'Player'):'Hidden player',team:player.TeamID===own.TeamID?'Your team':'Opponent',rank:Number.isInteger(player.CompetitiveTier)?{tier:player.CompetitiveTier,rr:null}:null,...allowed?{puuid:player.Subject}:{}};
+    });
+    return {contextId,phase,mapId,queue,players:rows,enemyExpected,notice};
   }
   async lobby(){
     const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
@@ -175,32 +259,11 @@ class RiotClient {
     return {partyId:player.CurrentPartyID,phase:party.State || 'UNKNOWN',queue:party.MatchmakingData?.QueueID || '',ready:own?.IsReady===true,leader:own?.IsOwner===true};
   }
   async players(){
-    const s=this.session;if(!s)throw new Error('Connect Riot Client first.');
-    this.visiblePlayers.clear();
-    const current=await this.request('glz',`/core-game/v1/players/${s.puuid}`,'GET',undefined,s);
-    if(!UUID.test(current?.MatchID))throw new Error('No active match. Player ranks are available after the match starts.');
-    const match=await this.request('glz',`/core-game/v1/matches/${current.MatchID}`,'GET',undefined,s);
-    const roster=Array.isArray(match?.Players)?match.Players:[];
-    const own=roster.find(x=>x.Subject===s.puuid);
-    if(!own)throw new Error('Your account is not in the current match.');
-    // Do not resolve identities or request stats for incognito players.
-    const visible=roster.filter(x=>UUID.test(x.Subject)&&x.PlayerIdentity?.Incognito===false).slice(0,10);
-    this.visiblePlayers=new Set(visible.map(x=>x.Subject));
-    const names=visible.length?await this.request('pd','/name-service/v2/players','PUT',visible.map(x=>x.Subject),s):[];
-    const rows=[];
-    for(const player of roster.slice(0,10)){
-      const identity=visible.find(x=>x.Subject===player.Subject);
-      const name=identity&&(Array.isArray(names)?names:[]).find(x=>x.Subject===player.Subject);
-      let rank=null;
-      if(identity){
-        try{const mmr=await this.request('pd',`/mmr/v1/players/${player.Subject}`,'GET',undefined,s,{permissionFailure:true});
-          const update=mmr?.LatestCompetitiveUpdate;
-          if(Number.isInteger(update?.TierAfterUpdate))rank={tier:update.TierAfterUpdate,rr:update.RankedRatingAfterUpdate};
-        }catch(error){if(!this.session)throw error;}
-      }
-      rows.push({...identity?{puuid:player.Subject,agentId:player.CharacterID}: {},name:name?.GameName?name.GameName+'#'+name.TagLine:'Hidden player',team:player.TeamID===own.TeamID?'Your team':'Opponent',rank});
-    }
-    return rows;
+    const snapshot=await this.roster();
+    return Promise.all(snapshot.players.map(async player=>{
+      if(!player.puuid)return player;
+      try{const rank=await this.playerRank(player.puuid);return {...player,...rank || {}};}catch{return player;}
+    }));
   }
   async action(action,agentId){
     if(!['ready','unready','queue','dequeue','select','lock'].includes(action))throw new Error('Unknown client action.');

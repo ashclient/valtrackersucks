@@ -36,3 +36,9 @@ test('summary respects missing data and unknown results', () => {
 test('map aliases are resolved', () => {
   assert.equal(mapName('/Game/Maps/Juliett/Juliett'), 'Sunset');
 });
+test('parses an anonymized internal Riot response using subject and queueID',()=>{
+  const fixture=require('./fixtures/client-match-detail.json');
+  const result=analyzeMatch(fixture,'11111111-1111-1111-1111-111111111111');
+  assert.equal(result.kills,19);assert.equal(result.deaths,10);assert.equal(result.acs,303);assert.equal(result.hs,34.5);assert.equal(result.adr,206);assert.equal(result.queue,'competitive');
+  assert.equal(result.combat.score,5148);assert.equal(result.combat.hits,58);
+});
