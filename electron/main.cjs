@@ -1,14 +1,17 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { analyzeMatch, summary } = require('../src/analytics.cjs');
+const { importFiles, scanFolder, exportCSV } = require('./local-data.cjs');
+const { getCatalog } = require('./catalog.cjs');
 
 const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
 const AGENTS = new Set(['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Viper', 'Vyse', 'Waylay', 'Yoru']);
 const DEFAULTS = Object.freeze({
-  riotId: '', puuid: '', region: 'na', favorites: ['Jett', 'Omen', 'Sage']
+  riotId: '', puuid: '', region: 'na', favorites: ['Jett', 'Omen', 'Sage'],
+  syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98
 });
 let mainWindow = null;
 let overlayWindow = null;
@@ -16,6 +19,9 @@ let preferences = { ...DEFAULTS };
 let matches = [];
 let overlayInteractive = false;
 let isQuitting = false;
+let tray = null;
+let syncInterval = null;
+const catalogCache = new Map();
 const responseCache = new Map();
 
 function storePath(name) {
@@ -42,7 +48,11 @@ function sanitizeSettings(input) {
     riotId: id,
     puuid: puuid,
     region: REGIONS.has(region) ? region : 'na',
-    favorites: [...new Set(favorites.filter(x => AGENTS.has(x)))].slice(0, 3)
+    favorites: [...new Set(favorites.filter(x => AGENTS.has(x)))].slice(0, 3),
+    syncFolder: typeof value.syncFolder === 'string' ? value.syncFolder.slice(0, 1200) : '',
+    launchAtLogin: value.launchAtLogin === true,
+    minimizeToTray: value.minimizeToTray !== false,
+    overlayOpacity: Math.max(0.65, Math.min(1, Number(value.overlayOpacity) || 0.98))
   };
 }
 function safeMatches(input) {
@@ -66,7 +76,9 @@ function appState() {
     metrics: summary(matches),
     matchCount: matches.length,
     overlay: { visible: !!(overlayWindow && overlayWindow.isVisible()), interactive: overlayInteractive },
-    apiConfigured: !!process.env.RIOT_API_KEY
+    apiConfigured: !!process.env.RIOT_API_KEY,
+    rsoConfigured: Boolean(process.env.VTS_RSO_CONNECT_URL),
+    version: app.getVersion()
   };
 }
 function broadcast(channel, payload) {
@@ -100,6 +112,11 @@ function createMain() {
   secureWindow(mainWindow);
   openLocal(mainWindow, false);
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.on('close', e => {
+    if (!isQuitting && preferences.minimizeToTray && tray) {
+      e.preventDefault(); mainWindow.hide();
+    }
+  });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 function createOverlay() {
@@ -114,6 +131,7 @@ function createOverlay() {
     }
   });
   overlayWindow.setAlwaysOnTop(true, 'floating');
+  overlayWindow.setOpacity(preferences.overlayOpacity);
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   secureWindow(overlayWindow);
   openLocal(overlayWindow, true);
@@ -154,26 +172,11 @@ async function importMatches() {
     filters: [{ name: 'JSON', extensions: ['json'] }]
   });
   if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
-  let imported = 0;
-  const errors = [];
-  for (const file of result.filePaths.slice(0, 30)) {
-    try {
-      if (fs.statSync(file).size > 8 * 1024 * 1024) throw new Error('file too large (8 MB maximum)');
-      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      const entries = Array.isArray(data) ? data : (Array.isArray(data.matches) ? data.matches : [data]);
-      for (const raw of entries.slice(0, 100)) {
-        const item = analyzeMatch(raw, preferences.puuid);
-        const index = matches.findIndex(x => x.id === item.id);
-        if (index === -1) imported++;
-        if (index !== -1) matches.splice(index, 1);
-        matches.push(item);
-      }
-    } catch (error) { errors.push(path.basename(file) + ': ' + error.message); }
-  }
-  matches = safeMatches(matches).sort((a, b) => b.timestamp - a.timestamp).slice(0, 500);
+  const outcome = importFiles(result.filePaths, preferences.puuid, matches);
+  matches = safeMatches(outcome.matches);
   writeJSON('matches.json', matches);
   notifyChanged();
-  return { ok: imported > 0, count: imported, errors };
+  return { ok: outcome.imported > 0, count: outcome.imported, errors: outcome.errors };
 }
 async function getJSON(url) {
   const cache = responseCache.get(url);
@@ -217,6 +220,86 @@ async function getLeaderboard() {
     return { ok: false, error: String(error.message || error) };
   }
 }
+
+const trayIconData = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABfElEQVR42u2b2w3CMAxFG4sRYCFYA6aDNWAh2AG+KkFp09SxE7/yTdLe6+NHJTIMzlfCbnwez29JQg6PW2pigDThtUYkK8KxRiRrwrcaAZbFl2gAy+JLtIB18WuawIP4nDbwPgiBl+gvaQwCPEV/TmsQ4C36Uwp2NYfs71f03tfpQiZm6T1KnlGVApQiRLTBlquGHqrokxignYKuXaCWgtrokxmgmYKYA6gOwlKATQMK/IMAagN61wLM80UQsDUNqGYIFgO0dQQxNaA0qlTFj9UATRREF5BUkdfSgBr/IIDbAEoKOKLfhADpBTFSQOKIOsWdC/8goKUB1LWA6jyxBIzYU374dDdAYkcQXQM4i183A6RRoK4LUBsIFkTEHKDRAAwFHOQEAZYKmmkCuMwCq8I2GYC9bKDZpFEzWMa7ZP1E3su/xb6Jjza45IyH6AcBcwZYpmBOG5T+0KL4bApYMiGnBbAbLYj/mwNyy+3FSW1GsF2dlW6EhxmGZX0AOv6qL3BOCIwAAAAASUVORK5CYII=';
+function createTray() {
+  const icon = nativeImage.createFromDataURL('data:image/png;base64,' + trayIconData);
+  tray = new Tray(icon.resize({width: 20, height: 20}));
+  tray.setToolTip('VTS • VALORANT companion');
+  const showDashboard = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+  };
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {label: 'Open VTS', click: showDashboard},
+    {label: 'Show / hide overlay', click: toggleOverlay},
+    {label: 'Toggle overlay interaction', click: toggleInteractive},
+    {type: 'separator'},
+    {label: 'Quit VTS', click: () => app.quit()}
+  ]));
+  tray.on('double-click', showDashboard);
+}
+function syncLocalFolder(silent = false) {
+  if (!preferences.syncFolder || !preferences.puuid) return {ok: false, reason: 'Set your own PUUID and export folder first.'};
+  try {
+    const res = scanFolder(preferences.syncFolder, preferences.puuid, matches);
+    if (res.imported || res.matches.length !== matches.length) {
+      matches = safeMatches(res.matches);
+      writeJSON('matches.json', matches);
+      notifyChanged();
+    }
+    return {ok: true, count: res.imported, examined: res.examined, errors: res.errors};
+  } catch (error) {
+    return {ok: false, reason: error.message};
+  }
+}
+async function chooseSyncFolder() {
+  const selected = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose your own exported match JSON folder',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (selected.canceled || !selected.filePaths.length) return {ok:false, canceled:true};
+  preferences = sanitizeSettings({...preferences, syncFolder: selected.filePaths[0]});
+  writeJSON('settings.json', preferences);
+  notifyChanged();
+  return {ok:true, folder:preferences.syncFolder};
+}
+async function exportLocalCSV() {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Export your private VALORANT career summary',
+    defaultPath: 'VTS-match-history.csv',
+    filters: [{name: 'CSV file', extensions: ['csv']}]
+  });
+  if (result.canceled || !result.filePath) return {ok:false, canceled:true};
+  fs.writeFileSync(result.filePath, exportCSV(matches), {encoding:'utf8',flag:'w',mode:0o600});
+  return {ok:true, path:result.filePath, count:matches.length};
+}
+async function getCachedCatalog(kind) {
+  if (!['agents','maps','weapons'].includes(kind)) return {ok:false, error:'Unknown catalog'};
+  const entry = catalogCache.get(kind);
+  if (entry && entry.expires > Date.now()) return {ok:true, data:entry.data, cached:true};
+  try {
+    const data = await getCatalog(kind);
+    catalogCache.set(kind, {data, expires:Date.now() + 6 * 60 * 60 * 1000});
+    return {ok:true,data,cached:false};
+  } catch(error) {
+    if (entry) return {ok:true,data:entry.data,cached:true,stale:true};
+    return {ok:false,error:error.message};
+  }
+}
+async function connectRiot() {
+  const target = process.env.VTS_RSO_CONNECT_URL || '';
+  if (!target) return {ok:false, error:'Riot account sign-in needs a production-approved RSO client and a secure OAuth backend. VTS does not have those credentials yet.'};
+  try {
+    const parsed = new URL(target);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) throw new Error('Invalid RSO backend URL: HTTPS is required.');
+    // This is only an external authorized login portal. It does not grant client-control permissions.
+    await shell.openExternal(parsed.href);
+    return {ok:true, launched:true, note:'Complete authorization in your browser. VTS requires an approved backend to sync identity.'};
+  } catch(error) {return {ok:false,error:error.message};}
+}
+
 function registerIPC() {
   ipcMain.handle('app:state', () => appState());
   ipcMain.handle('app:settings', (_event, settings) => {
@@ -228,10 +311,17 @@ function registerIPC() {
       writeJSON('matches.json', []);
     }
     writeJSON('settings.json', preferences);
+    if (process.platform === 'win32') app.setLoginItemSettings({openAtLogin: preferences.launchAtLogin});
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.setOpacity(preferences.overlayOpacity);
     notifyChanged();
     return appState();
   });
   ipcMain.handle('app:import', importMatches);
+  ipcMain.handle('app:choose-folder', chooseSyncFolder);
+  ipcMain.handle('app:sync-folder', () => syncLocalFolder());
+  ipcMain.handle('app:export-csv', exportLocalCSV);
+  ipcMain.handle('app:catalog', (_event, kind) => getCachedCatalog(kind));
+  ipcMain.handle('app:rso', connectRiot);
   ipcMain.handle('app:clear-matches', () => {
     matches = []; writeJSON('matches.json', []); notifyChanged(); return appState();
   });
@@ -263,9 +353,16 @@ app.whenReady().then(() => {
   registerIPC();
   createMain();
   createOverlay();
+  createTray();
+  syncInterval = setInterval(() => { try { syncLocalFolder(true); } catch (_) {} }, 60000);
+  syncInterval.unref();
+  if (preferences.syncFolder) { try { syncLocalFolder(true); } catch (_) {} }
   globalShortcut.register('CommandOrControl+Shift+V', toggleOverlay);
   globalShortcut.register('CommandOrControl+Shift+I', toggleInteractive);
 });
 app.on('before-quit', () => { isQuitting = true; });
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  if (syncInterval) clearInterval(syncInterval);
+  globalShortcut.unregisterAll();
+});
 app.on('window-all-closed', () => app.quit());
