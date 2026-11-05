@@ -1,8 +1,8 @@
 # VTS — VALORANT companion for Windows
 
-An independent, local-first VALORANT desktop app with a fast dashboard, optional always-on-top overlay, agent planning, match history, map statistics, cosmetic previews, and optional Riot Sign On integration for **consenting players** using an approved production API client.
+An independent VALORANT desktop app with a fast dashboard, optional always-on-top overlay, agent planning, match history, map statistics, cosmetic previews, and optional Riot Sign On integration for **consenting players** using an approved production API client.
 
-**Release:** v0.2.0. VTS is usable offline with local data. Some connected features are conditional on production Riot approval, official API permissions, and a deployed backend.
+**Release:** v0.2.0. VTS is usable offline with local data. The optional official RSO integration requires an approved production client and backend. The separate local-client integration below uses unofficial endpoints.
 
 ## Install VTS (Windows)
 
@@ -23,30 +23,32 @@ npm start
 
 To build the installer on Windows, run `npm run dist:win`. Builds include a generated VTS application icon.
 
-## Feature inventory
+## Local Riot Client integration (development)
 
-| Feature | v0.2.0 status |
-| --- | --- |
-| Native-feeling frameless Windows desktop dashboard | Implemented |
-| Agent presets (top three picks) | Implemented; manual in-game selection only |
-| Dynamic agent names and portraits | Implemented using public VALORANT game-content API |
-| Cosmetics and skin library with filter | Implemented; static previews, not your daily shop |
-| Separate transparent always-on-top overlay | Implemented; normal desktop overlay, borderless recommended |
-| Click-through/interactive overlay shortcuts | Implemented |
-| Match history for the consenting account | Implemented for imported or approved RSO-synced data |
-| K/D, ACS, headshots, damage per round, maps and wins | Implemented for available post-match data |
-| Import one/many JSON match responses | Implemented |
-| Choose a folder with personal match JSON exports; auto-rescan | Implemented; every 60 seconds |
-| Export local match history to CSV | Implemented |
-| Start with Windows, minimize to tray, opacity options | Implemented |
-| Riot account sign-in through approved RSO | Implemented as **optional backend integration**; requires approval, backend deployment and credentials |
-| Sync signed-in account's completed matches | Backend implementation present, **requires approved server to be configured and authorized** |
-| Official leaderboard | Supported with approved Riot API key (development mode only until secure server connector is added) |
-| Automatic agent select/lock, matchmaking/ready-up | Not implemented; no documented official client-control endpoint |
-| Personal rotating store or equip skins | Not implemented; Riot does not expose these actions via its supported public VALORANT API |
-| Pre-match enemy scouting or revealing hidden accounts | Intentionally excluded |
+Open **Shop**, select your region in Settings, and choose **Connect Riot Client** on Windows. Sign in through Riot Client first. No production API key or RSO backend is needed for this connection.
 
-No game injection, memory scanning, token/lockfile extraction, DLL hooks, credential capture, or gameplay automation is used.
+- **Daily shop:** reads the signed-in account's rotating offers and reset time. VALORANT can be closed, but Riot Client must stay running and signed in. Refresh explicitly to load offers.
+- **Party:** refresh lobby state, ready/unready your own account, and start/cancel matchmaking as party leader. VALORANT must be in a lobby.
+- **Agent select:** explicitly select or lock an agent in the current pregame session. Locking asks for confirmation. This can act while the game UI is loading into agent select; it does not change an agent after locking or after the match starts.
+- **Current match players:** shows the latest recorded competitive rank and RR for visible players after the match starts. This may reflect an earlier act. Incognito players are not resolved or looked up. Full enemy performance histories and pre-match scouting are not implemented.
+- Existing offline match imports, career summaries, presets, overlay, catalog browser and CSV exports remain available. History and map breakdowns now include all retained summaries (up to 500), rather than only the latest 40.
+
+This connector uses **unofficial endpoints**, which Riot can change or reject. It is a development implementation, not a claim of Riot approval or compatibility. It has fixture-based request tests and Linux UI validation; **live shop, party, agent and rank behavior has not yet been verified with a signed-in Windows Riot Client**. Windows installer packaging has not been rerun for these changes.
+
+VTS reads the current user's `%LOCALAPPDATA%/Riot Games/Riot Client/Config/lockfile` to authenticate only to Riot Client's loopback service. Access and entitlement tokens stay in Electron's main-process memory; they are not saved, logged or exposed through the preload bridge. Disconnect or exit clears the session. The self-signed certificate exception is limited to the literal loopback address and lockfile port; remote HTTPS retains certificate verification. No memory scanning, injection or in-game input simulation is used.
+
+## Development validation
+
+Run `npm test` and the JavaScript syntax checks in `.github/workflows/windows.yml`. Connector tests mock remote responses: they validate request construction and guards, not live endpoint compatibility.
+
+On Windows, validate in this order:
+1. Sign in to Riot Client, leave VALORANT closed, and load the daily shop. Compare names, prices and expiry with the game after launching it.
+2. Enter a party, refresh the lobby, and verify ready/unready. As leader, start then cancel queue; as a member, confirm queue controls report the leadership requirement.
+3. In a suitable match, select an available agent and confirm lock once. Check behavior when pregame ends or another player takes the agent.
+4. In an active match, load visible player ranks and verify that hidden players remain hidden. Rank lookup failures display Unavailable.
+5. Disconnect and verify controls become unavailable. Reconnect after signing out, switching accounts, changing regions or an expired session. Wrong-region and rejected-session requests must fail clearly.
+
+The public catalog/version service uses `valorant-api.com`; artwork uses `media.valorant-api.com`. Riot data uses `pd.<shard>.a.pvp.net` and `glz-<region>.<shard>.a.pvp.net`. These hosts must be reachable on the Windows machine. The cloud environment currently restricts these destinations, and contains no Riot Client, so live validation must happen on Windows.
 
 ## Overlay shortcuts
 
@@ -55,7 +57,13 @@ No game injection, memory scanning, token/lockfile extraction, DLL hooks, creden
 | **Ctrl + Shift + V** | Show or hide overlay |
 | **Ctrl + Shift + I** | Toggle between click-through and interactive overlay |
 
-You may adjust opacity in **Settings**. The app can stay in your system tray when the dashboard window closes. Use the tray menu to quit.
+The desktop app and overlay are separate windows. With **Minimize to system tray** enabled (the default), minimizing or closing the desktop hides it while VTS and its global shortcuts keep running. Click the tray icon or choose **Open VTS** to restore it; **Quit VTS** ends the app and overlay. Launching VTS again restores the existing instance.
+
+The overlay starts hidden, stays above ordinary windows, and appears without taking keyboard focus when its show/hide shortcut is pressed. The interaction shortcut makes it clickable and focusable; hiding it resets click-through mode. It has Agent picks and Match players tabs, plus an Open app button. Select/lock and player requests still require a connected Riot Client and the appropriate match phase.
+
+Change both keybindings and opacity in **Settings**. To change a binding, click its field, press the desired keys, and choose **Save shortcuts**. A conflicting binding reports an error and preserves the last working shortcuts. When the OS refuses registration at startup, Settings reports that failure. The default bindings above remain the defaults.
+
+Global hotkey dispatch, custom bindings, separate windows, hide/show, and tray persistence were exercised in the Linux/X11 cloud desktop. Real Windows tray interaction and display above a running VALORANT window remain unverified. Use Borderless Windowed mode; ordinary Electron overlays cannot guarantee visibility over exclusive fullscreen.
 
 ## Local match data
 
@@ -85,7 +93,7 @@ The backend is a minimal **single-process reference deployment**. For public pro
 
 ## Data and privacy
 
-- No Riot password collection.
+- No Riot password collection. Local client connection reuses the current signed-in session.
 - No Riot production secret in the desktop binary.
 - Local match summaries are saved in Electron's per-user data directory.
 - The Riot backend stores ephemeral authorized accounts and sessions in memory.
@@ -95,6 +103,7 @@ The backend is a minimal **single-process reference deployment**. For public pro
 
 ## Project layout
 
+- `electron/client.cjs` — local Riot Client session, shop, party, agent and visible-player rank requests.
 - `electron/main.cjs` — Windows/tray lifecycle, overlay, IPC, local and approved account integrations.
 - `electron/preload.cjs` — restricted IPC bridge.
 - `electron/catalog.cjs` — public agents, maps, weapons and skins.

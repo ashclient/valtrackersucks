@@ -1,17 +1,32 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage } = require('electron');
+const { net, app, BrowserWindow, ipcMain, dialog, globalShortcut, nativeTheme, shell, Tray, Menu, nativeImage, safeStorage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { analyzeMatch, summary } = require('../src/analytics.cjs');
 const { importFiles, scanFolder, exportCSV, mergeMatches } = require('./local-data.cjs');
 const { getCatalog } = require('./catalog.cjs');
+const { RiotClient } = require('./client.cjs');
+const { DEFAULT_KEYS, normalizeKey, Shortcuts } = require('./shortcuts.cjs');
+const shortcuts = new Shortcuts(globalShortcut,{overlay:toggleOverlay,interaction:toggleInteractive});
+const primaryInstance=app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
+app.on('second-instance', () => showMain());
+const client = new RiotClient({fetchJSON:(...args)=>net.fetch(...args)});
+let clientBusy = false;
+async function clientOperation(operation) {
+  if (clientBusy) return {ok:false,error:'A client request is already running.'};
+  clientBusy=true;
+  try {return {ok:true,...await operation()};}
+  catch(error) {return {ok:false,error:error.message};}
+  finally {clientBusy=false;}
+}
 
 const REGIONS = new Set(['na', 'eu', 'ap', 'kr', 'br', 'latam']);
 const AGENTS = new Set(['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Viper', 'Vyse', 'Waylay', 'Yoru']);
 const DEFAULTS = Object.freeze({
   riotId: '', puuid: '', region: 'na', favorites: ['Jett', 'Omen', 'Sage'],
-  syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98
+  syncFolder: '', launchAtLogin: false, minimizeToTray: true, overlayOpacity: 0.98, overlayShortcut: DEFAULT_KEYS.overlay, interactionShortcut: DEFAULT_KEYS.interaction
 });
 let mainWindow = null;
 let overlayWindow = null;
@@ -53,7 +68,9 @@ function sanitizeSettings(input) {
     syncFolder: typeof value.syncFolder === 'string' ? value.syncFolder.slice(0, 1200) : '',
     launchAtLogin: value.launchAtLogin === true,
     minimizeToTray: value.minimizeToTray !== false,
-    overlayOpacity: Math.max(0.65, Math.min(1, Number(value.overlayOpacity) || 0.98))
+    overlayOpacity: Math.max(0.65, Math.min(1, Number(value.overlayOpacity) || 0.98)),
+    overlayShortcut: normalizeKey(value.overlayShortcut) || DEFAULT_KEYS.overlay,
+    interactionShortcut: normalizeKey(value.interactionShortcut) || DEFAULT_KEYS.interaction
   };
 }
 function safeMatches(input) {
@@ -72,14 +89,17 @@ function safeMatches(input) {
 }
 function appState() {
   return {
+    desktop: {visible: Boolean(mainWindow && mainWindow.isVisible())},
     settings: preferences,
-    matches: matches.slice(0, 40),
+    matches: matches.slice(0, 500),
     metrics: summary(matches),
     matchCount: matches.length,
     overlay: { visible: !!(overlayWindow && overlayWindow.isVisible()), interactive: overlayInteractive },
     apiConfigured: !!process.env.RIOT_API_KEY,
     rsoConfigured: Boolean(process.env.VTS_API_BASE_URL),
     linkedAccount: linkedSession && linkedSession.account ? linkedSession.account : null,
+    shortcuts: {registered:Boolean(shortcuts.current),error:shortcuts.error},
+    clientConnected: Boolean(client.session),
     version: app.getVersion()
   };
 }
@@ -114,25 +134,29 @@ function createMain() {
   secureWindow(mainWindow);
   openLocal(mainWindow, false);
   mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.on('minimize', () => {
+    if(preferences.minimizeToTray && tray)mainWindow.hide();
+  });
   mainWindow.on('close', e => {
-    if (!isQuitting && preferences.minimizeToTray && tray) {
-      e.preventDefault(); mainWindow.hide();
-    }
+    if(isQuitting)return;
+    e.preventDefault();
+    if(preferences.minimizeToTray && tray)mainWindow.hide();
+    else app.quit();
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 function createOverlay() {
   overlayWindow = new BrowserWindow({
-    width: 360, height: 426, x: 48, y: 48,
+    width: 440, height: 520, x: 48, y: 48,
     frame: false, show: false, transparent: true, resizable: false,
-    skipTaskbar: true, alwaysOnTop: true, hasShadow: false, backgroundColor: '#00000000',
+    skipTaskbar: true, alwaysOnTop: true, focusable: false, hasShadow: false, backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       sandbox: true, contextIsolation: true, nodeIntegration: false,
       webSecurity: true, backgroundThrottling: true
     }
   });
-  overlayWindow.setAlwaysOnTop(true, 'floating');
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   overlayWindow.setOpacity(preferences.overlayOpacity);
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
   secureWindow(overlayWindow);
@@ -140,31 +164,40 @@ function createOverlay() {
   overlayWindow.on('close', event => {
     if (!isQuitting) {
       event.preventDefault();
-      overlayWindow.hide();
-      broadcast('overlay:changed', appState().overlay);
-      notifyChanged();
+      hideOverlay();
     }
   });
 }
+function showMain() {
+  if(!mainWindow || mainWindow.isDestroyed())return;
+  if(mainWindow.isMinimized())mainWindow.restore();
+  mainWindow.show();mainWindow.focus();
+}
+function updateOverlay() {
+  const state=appState().overlay;
+  broadcast('overlay:changed',state);notifyChanged();return state;
+}
+function hideOverlay() {
+  overlayInteractive=false;
+  if(overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.setIgnoreMouseEvents(true,{forward:true});
+    overlayWindow.setFocusable(false);overlayWindow.hide();
+  }
+  return updateOverlay();
+}
 function toggleOverlay() {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return appState().overlay;
-  if (overlayWindow.isVisible()) overlayWindow.hide();
-  else overlayWindow.showInactive();
-  const state = appState().overlay;
-  broadcast('overlay:changed', state);
-  notifyChanged();
-  return state;
+  if(!overlayWindow || overlayWindow.isDestroyed())return appState().overlay;
+  if(overlayWindow.isVisible())return hideOverlay();
+  overlayWindow.showInactive();return updateOverlay();
 }
 function toggleInteractive() {
-  overlayInteractive = !overlayInteractive;
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.setIgnoreMouseEvents(!overlayInteractive, { forward: true });
-    if (overlayInteractive && !overlayWindow.isVisible()) overlayWindow.showInactive();
-  }
-  const state = appState().overlay;
-  broadcast('overlay:changed', state);
-  notifyChanged();
-  return state;
+  if(!overlayWindow || overlayWindow.isDestroyed())return appState().overlay;
+  overlayInteractive=!overlayInteractive;
+  overlayWindow.setFocusable(overlayInteractive);
+  overlayWindow.setIgnoreMouseEvents(!overlayInteractive,{forward:true});
+  if(overlayInteractive){overlayWindow.show();overlayWindow.focus();}
+  else overlayWindow.blur();
+  return updateOverlay();
 }
 async function importMatches() {
   if (!preferences.puuid) return { ok: false, error: 'Set your own PUUID in Settings before importing.' };
@@ -228,19 +261,17 @@ function createTray() {
   const icon = nativeImage.createFromDataURL('data:image/png;base64,' + trayIconData);
   tray = new Tray(icon.resize({width: 20, height: 20}));
   tray.setToolTip('VTS • VALORANT companion');
-  const showDashboard = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.show();
-    mainWindow.focus();
-  };
+  const showDashboard = showMain;
   tray.setContextMenu(Menu.buildFromTemplate([
     {label: 'Open VTS', click: showDashboard},
     {label: 'Show / hide overlay', click: toggleOverlay},
     {label: 'Toggle overlay interaction', click: toggleInteractive},
+    {label: 'Hide app to tray', click: () => mainWindow?.hide()},
     {type: 'separator'},
     {label: 'Quit VTS', click: () => app.quit()}
   ]));
   tray.on('double-click', showDashboard);
+  tray.on('click', showDashboard);
 }
 function syncLocalFolder(silent = false) {
   if (!preferences.syncFolder || !preferences.puuid) return {ok: false, reason: 'Set your own PUUID and export folder first.'};
@@ -278,11 +309,11 @@ async function exportLocalCSV() {
   return {ok:true, path:result.filePath, count:matches.length};
 }
 async function getCachedCatalog(kind) {
-  if (!['agents','maps','weapons'].includes(kind)) return {ok:false, error:'Unknown catalog'};
+  if (!['agents','maps','weapons','skinlevels'].includes(kind)) return {ok:false, error:'Unknown catalog'};
   const entry = catalogCache.get(kind);
   if (entry && entry.expires > Date.now()) return {ok:true, data:entry.data, cached:true};
   try {
-    const data = await getCatalog(kind);
+    const data = await getCatalog(kind, {fetch:(...args)=>net.fetch(...args)});
     catalogCache.set(kind, {data, expires:Date.now() + 6 * 60 * 60 * 1000});
     return {ok:true,data,cached:false};
   } catch(error) {
@@ -386,9 +417,28 @@ async function disconnectRiot() {
 
 function registerIPC() {
   ipcMain.handle('app:state', () => appState());
+  ipcMain.handle('client:connect', () => clientOperation(async()=>client.connect(preferences.region)));
+  ipcMain.handle('client:disconnect', () => {client.disconnect();return {ok:true};});
+  ipcMain.handle('client:players', () => clientOperation(async()=>({players:await client.players()})));
+  ipcMain.handle('client:lobby', () => clientOperation(async()=>({lobby:await client.lobby()})));
+  ipcMain.handle('client:shop', () => clientOperation(async()=>{
+    const shop=await client.shop();
+    const catalog=await getCachedCatalog('skinlevels');
+    return {shop:{...shop,offers:shop.offers.map(offer=>({...offer,...(catalog.data||[]).find(x=>x.id===offer.id)}))}};
+  }));
+  ipcMain.handle('client:action', (_event, action, agent) => clientOperation(async()=>{
+    if (['select','lock'].includes(action)) {
+      const catalog=await getCachedCatalog('agents');
+      if (!catalog.ok || !catalog.data.some(x=>x.id===agent)) throw new Error('Load the agent catalog and choose an available agent.');
+    }
+    return client.action(action,agent);
+  }));
   ipcMain.handle('app:settings', (_event, settings) => {
+    const next=sanitizeSettings(settings);
+    shortcuts.apply({overlay:next.overlayShortcut,interaction:next.interactionShortcut});
     const oldPuuid = preferences.puuid;
-    preferences = sanitizeSettings(settings);
+    if (next.region !== preferences.region) client.disconnect();
+    preferences = next;
     if (oldPuuid && preferences.puuid !== oldPuuid) {
       // Imported summaries belong to the previous account.
       matches = [];
@@ -416,23 +466,28 @@ function registerIPC() {
     if (action === 'toggle') return toggleOverlay();
     if (action === 'interaction') return toggleInteractive();
     if (action === 'hide' && overlayWindow) {
-      overlayWindow.hide(); notifyChanged(); return appState().overlay;
+      return hideOverlay();
     }
     return appState().overlay;
   });
   ipcMain.handle('window:action', (event, action) => {
+    if(action==='open-main'){showMain();return true;}
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return false;
-    if (action === 'minimize') win.minimize();
+    if (action === 'minimize') {
+      if(win===mainWindow && preferences.minimizeToTray && tray)win.hide();
+      else win.minimize();
+    }
     if (action === 'maximize' && win === mainWindow) win.isMaximized() ? win.unmaximize() : win.maximize();
     if (action === 'close') {
-      if (win === mainWindow) app.quit();
+      if (win === mainWindow) win.close();
       else win.hide();
     }
     return true;
   });
 }
 app.whenReady().then(() => {
+  if(!primaryInstance)return;
   nativeTheme.themeSource = 'dark';
   preferences = sanitizeSettings(readJSON('settings.json', DEFAULTS));
   linkedSession = loadRiotSession();
@@ -444,10 +499,10 @@ app.whenReady().then(() => {
   syncInterval = setInterval(() => { try { syncLocalFolder(true); } catch (_) {} }, 60000);
   syncInterval.unref();
   if (preferences.syncFolder) { try { syncLocalFolder(true); } catch (_) {} }
-  globalShortcut.register('CommandOrControl+Shift+V', toggleOverlay);
-  globalShortcut.register('CommandOrControl+Shift+I', toggleInteractive);
+  try {shortcuts.apply({overlay:preferences.overlayShortcut,interaction:preferences.interactionShortcut});}
+  catch (_) {notifyChanged();}
 });
-app.on('before-quit', () => { isQuitting = true; });
+app.on('before-quit', () => { isQuitting = true;client.disconnect(); });
 app.on('will-quit', () => {
   if (syncInterval) clearInterval(syncInterval);
   globalShortcut.unregisterAll();

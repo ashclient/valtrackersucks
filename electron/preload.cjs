@@ -2,6 +2,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const channels = new Set(['state:changed', 'overlay:changed']);
 contextBridge.exposeInMainWorld('vts', Object.freeze({
+  clientConnect: () => ipcRenderer.invoke('client:connect'),
+  clientDisconnect: () => ipcRenderer.invoke('client:disconnect'),
+  clientShop: () => ipcRenderer.invoke('client:shop'),
+  clientPlayers: () => ipcRenderer.invoke('client:players'),
+  clientLobby: () => ipcRenderer.invoke('client:lobby'),
+  clientAction: (action, agent) => ipcRenderer.invoke('client:action', action, agent),
   getState: () => ipcRenderer.invoke('app:state'),
   saveSettings: (value) => ipcRenderer.invoke('app:settings', value),
   importMatches: () => ipcRenderer.invoke('app:import'),
