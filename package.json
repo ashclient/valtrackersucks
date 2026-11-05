@@ -1,6 +1,6 @@
 {
   "name": "valtrackersucks",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Fast, privacy-aware VALORANT desktop companion",
   "main": "electron/main.cjs",
@@ -9,7 +9,9 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "dist:win": "electron-builder --win portable nsis --x64 --publish never"
+    "dist:win": "npm run generate:icons && electron-builder --win portable nsis --x64 --publish never",
+    "generate:icons": "node scripts/generate-icons.cjs",
+    "serve:rso": "node server/rso-server.cjs"
   },
   "devDependencies": {
     "electron": "45.2.1",
@@ -19,9 +21,30 @@
     "appId": "xyz.ashclient.vts",
     "productName": "VTS",
     "asar": true,
-    "directories": { "output": "dist" },
-    "files": ["electron/**/*", "src/**/*", "package.json", "README.md"],
-    "win": { "target": ["portable", "nsis"] },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "assets/icon.ico",
+      "assets/icon.png",
+      "package.json",
+      "README.md"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "extraMetadata": {
+      "description": "VTS independent VALORANT desktop companion"
+    }
   }
 }
